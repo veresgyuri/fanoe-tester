@@ -3,7 +3,5 @@ __pycache__/
 .env
 venv/
 .vscode/
-*.mpy
-!lib/*.mpy
 boot_out.txt
 /archive/
