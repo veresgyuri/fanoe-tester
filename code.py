@@ -8,8 +8,10 @@ import time
 import board
 import busio
 import displayio
+import gc
 import keypad
 import microcontroller
+import os
 import pwmio
 from adafruit_bitmap_font import bitmap_font
 from adafruit_display_text import label
@@ -20,6 +22,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
+VERSION = "0v4"
 
 
 def dprint(*args, **kwargs) -> None:
@@ -416,6 +419,12 @@ class FanoeTesterApp:
         self.navigator = MenuNavigator(MENU_ROOT)
         self._actions = {
             "restart_device": self._action_restart_device,
+            "info_cpu_freq": self._action_info_cpu_freq,
+            "info_cpu_temp": self._action_info_cpu_temp,
+            "info_free_ram": self._action_info_free_ram,
+            "info_board_id": self._action_info_board_id,
+            "info_chip_uid": self._action_info_chip_uid,
+            "info_sw_version": self._action_info_sw_version,
         }
 
     def _render(self):
@@ -439,6 +448,40 @@ class FanoeTesterApp:
         dprint("Ujrainditas... (microcontroller.reset())")
         microcontroller.reset()
 
+    def _action_info_cpu_freq(self):
+        freq_mhz = microcontroller.cpu.frequency // 1_000_000
+        dprint("CPU frekvencia: %d MHz" % freq_mhz)
+        self.display.show_pair(" ESP32-S3 CPU órajel:", "     %d MHz" % freq_mhz, None)
+
+    def _action_info_cpu_temp(self):
+        try:
+            temp_c = microcontroller.cpu.temperature
+            text = "     %.1f °C" % temp_c
+            dprint("CPU homerseklet: %.1f C" % temp_c)
+        except (AttributeError, NotImplementedError):
+            dprint("microcontroller.cpu.temperature nem elerheto ezen a chipen")
+            text = "     nem elerheto"
+        self.display.show_pair(" ESP32-S3 CPU hőfok:", text, None)
+
+    def _action_info_free_ram(self):
+        free_kb = gc.mem_free() // 1024
+        dprint("Szabad RAM: %d KB" % free_kb)
+        self.display.show_pair(" Szabad RAM memória:", "    %d KB" % free_kb, None)
+
+    def _action_info_board_id(self):
+        board_id = os.uname().machine
+        dprint("Board azonosito: %s" % board_id)
+        self.display.show_pair(" Board azonosító:", "  " + board_id[:20], None)
+
+    def _action_info_chip_uid(self):
+        uid_hex = ":".join("%02X" % b for b in microcontroller.cpu.uid)
+        dprint("Chip UID: %s" % uid_hex)
+        self.display.show_pair(" Chip UID:", "  " + uid_hex, None)
+
+    def _action_info_sw_version(self):
+        dprint("Software verzio: %s" % VERSION)
+        self.display.show_pair(" Software verzió:", "   %s" % VERSION, None)
+
     def run(self):
         dprint("FanoeTesterApp starting")
         self.display.show_welcome()
@@ -458,9 +501,13 @@ class FanoeTesterApp:
                         confirmed_item = self.navigator.confirm_action(key_name)
                         if confirmed_item is not None:
                             self._dispatch_action(confirmed_item)
+                        self._render()
                     else:
-                        self.navigator.try_activate(key_name)
-                    self._render()
+                        activated_item = self.navigator.try_activate(key_name)
+                        if activated_item is not None and activated_item.get("auto_dispatch"):
+                            self._dispatch_action(activated_item)
+                        else:
+                            self._render()
                 elif key_name == "LEFT":
                     self.navigator.go_left()
                     self._render()
