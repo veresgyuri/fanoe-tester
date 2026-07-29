@@ -17,6 +17,7 @@ from fourwire import FourWire
 from adafruit_st7789 import ST7789
 
 from menu_data import MENU_ROOT
+from tft_messages import TFT_MESSAGES
 
 DEBUG = True
 
@@ -25,6 +26,16 @@ def dprint(*args, **kwargs) -> None:
     """Print debug messages when DEBUG mode is enabled."""
     if DEBUG:
         print(*args, **kwargs)
+
+
+def format_message(key, **kwargs):
+    """TFT_MESSAGES kulcs feloldása és .format()-olása. Egysoros sablonnál
+    (str) egy stringet ad vissza, kétsoros bejegyzésnél (tuple) egy
+    (sor1, sor2) tuple-t - mindkettőt a hívó formázza a saját kwargs-aival."""
+    template = TFT_MESSAGES[key]
+    if isinstance(template, tuple):
+        return tuple(line.format(**kwargs) for line in template)
+    return template.format(**kwargs)
 
 
 # --- DISPLAY KONFIGURÁCIÓ ---
@@ -58,14 +69,14 @@ COLOR_BORDER_HIGHLIGHT = 0x0033FF
 BORDER_THICKNESS = 3
 
 # --- WELCOME SCREEN KONFIGURÁCIÓ ---
-WELCOME_TEXT = "FÁNOE tester - 2026"
+WELCOME_TEXT = "FANOE tester"
 WELCOME_BORDER = 8
 WELCOME_BORDER_COLOR = 0xAA5AFF
 WELCOME_BG_COLOR = 0x000080
 WELCOME_TEXT_COLOR = 0xFFFF00
 WELCOME_FADE_STEPS = (0, 96, 1024, 2048, 4096, 8192, 16384, 32768, 49152, 65535)
-WELCOME_STEP_DELAY = 0.08  # egyszeri, indításkori animáció - lásd megjegyzés lent
-WELCOME_HOLD_SECONDS = 2.22
+WELCOME_STEP_DELAY = 0.06  # egyszeri, indításkori animáció - lásd megjegyzés lent
+WELCOME_HOLD_SECONDS = 0.5
 
 # --- KEYPAD KONFIGURÁCIÓ ---
 ROW_PINS = (board.IO5, board.IO4)
@@ -357,6 +368,22 @@ class MenuNavigator:
         self.in_leaf_screen = False
         self.nav_stack = [(self._root, 0, 0)]
         dprint("Hosszu ESC -> ugras a FOMENUbe")
+
+    def push_result_list(self, labels):
+        """Egy futásidőben generált, egysoros szövegekből álló listát tol a
+        nav_stack tetejére - ugyanaz a csúszóablakos/kiemelt böngészés
+        jelenik meg rá, mint a menüpontoknál (pl. RESULT képernyő a mérés
+        után). ESC/BAL ugyanúgy egy szinttel visszalép, mint bármelyik
+        almenüből. 'labels' egy lista sima stringekből - itt csomagoljuk
+        be leaf-dict-té, üres activate_keys-szel (ENTER/JOBB hatástalan
+        rajtuk, csak böngészhetők)."""
+        lines = [
+            {"label": text, "kind": "leaf", "activate_keys": set()}
+            for text in labels
+        ]
+        self.in_leaf_screen = False
+        self.nav_stack.append((lines, 0, 0))
+        dprint("RESULT lista megjelenitve, %d elem" % len(lines))
 
     def render_state(self):
         """Visszaadja, mit kell a kijelzőnek mutatnia:
