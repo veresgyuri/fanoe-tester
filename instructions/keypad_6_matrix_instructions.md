@@ -5,13 +5,16 @@ applyTo: '**/*keypad*'
 
 # 6-Button Matrix Keypad (3 columns × 2 rows)
 ### EXPLANATION FOR CARBON-BASED DEVELOPERS 😊
-<img src="../images/keypad_6_matrix.png" alt="6-button matrix keypad" width="300">
+<img src="../images/protecta_tast_5v.jpg" alt="6-button matrix keypad" width="180">
+<img src="../images/protect_tast_5v.jpg" alt="6-button matrix keypad" width="160">
+<img src="../images/protect_tast_bontva.jpg" alt="6-button matrix keypad" width="200">
+<img src="../images/6_keypad_esp32s3_tast_schem.jpg" alt="6-button matrix keypad" width="120">
 
 *English:*
 This is a 6-button tactile keypad salvaged/repurposed from an older 5V panel that originally drove a 2×16 character LCD (that LCD and its driver electronics have been removed for this project). The 6 buttons are UP, DOWN, LEFT, RIGHT, ENTER, ESC, wired as a genuine 3-column × 2-row matrix — not 6 independent GPIO lines. Each column already has its own **physical 5.6kΩ pull-up resistor on the PCB** (to 3.3V), so no internal GPIO pull-up/pull-down configuration is needed on the column lines. Buttons are normally-open and close the circuit when pressed, pulling the sensed line **low** (active-low logic). The panel also carries a small piezo buzzer (BEEP) and a status LED (L1), both currently unused/reserved for future features — no GPIO is assigned to them yet.
 
 *Magyar:*
-Ez egy 6 gombos, nyomógombos billentyűzet, ami egy régebbi, 5V-os panelről lett újrahasznosítva. Eredetileg egy 2×16 karakteres LCD-t vezérelt (az LCD-t és a hozzá tartozó vezérlő elektronikát ehhez a projekthez eltávolították). A 6 gomb: UP, DOWN, LEFT, RIGHT, ENTER, ESC, valódi 3 oszlop × 2 sor mátrixba kötve — nem 6 független GPIO vonal. Minden oszlopnak saját, **fizikai 5,6kΩ felhúzó ellenállása van a panelen** (3,3V-ra), ezért az oszlopvonalakon nincs szükség belső GPIO pull-up/pull-down beállításra. A gombok normál nyitottak, nyomásra zárnak, és az érzékelt vonalat **alacsonyra** húzzák (aktív-alacsony logika). A panelen található még egy apró piezo hangjelző (BEEP) és egy státusz LED (L1) is, mindkettő jelenleg használaton kívül/fenntartva jövőbeli funkciókhoz — ezekhez még nincs GPIO hozzárendelve.
+Ez egy 6 gombos, nyomógombos billentyűzet, ami egy régebbi, 5V-os panelről lett újrahasznosítva. Eredetileg egy 2×16 karakteres LCD-t vezérelt (az LCD-t és a hozzá tartozó vezérlő elektronikát ehhez a projekthez eltávolítottam). A 6 gomb: UP, DOWN, LEFT, RIGHT, ENTER, ESC, valódi 3 oszlop × 2 sor mátrixba kötve — nem 6 független GPIO vonal. Minden oszlopnak saját, **fizikai 5,6kΩ felhúzó ellenállása van a panelen** (3,3V-ra), ezért az oszlopvonalakon nincs szükség belső GPIO pull-up/pull-down beállításra. A gombok normál nyitottak, nyomásra zárnak, és az érzékelt vonalat **alacsonyra** húzzák (aktív-alacsony logika). A panelen található még egy apró piezo hangjelző (BEEP) és egy státusz LED (L1) is, mindkettő jelenleg használaton kívül/fenntartva jövőbeli funkciókhoz — ezekhez még nincs GPIO hozzárendelve.
 
 > ⚠️ Az instrukció forrásai:
 > - Saját kapcsolási rajz (Fritzing export) és fotó a fizikai panelről
