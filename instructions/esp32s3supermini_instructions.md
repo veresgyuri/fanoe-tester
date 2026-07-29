@@ -5,7 +5,8 @@ applyTo: '**/*esp32-s3-super-mini*'
 
 # ESP32‑S3‑Super Mini
 ## EXPLANATION FOR CARBON-BASED DEVELOPERS 😊
-<img src="../images/esp32_s3_super_mini.png" alt="ESP32-S3 Super Mini board" width="200">  
+<img src="../images/esp32_s3_top.jpg" alt="ESP32-S3 Super Mini board" width="300">
+<img src="../images/esp32_s3_back.jpg" alt="ESP32-S3 Super Mini board" width="180">    
 
 *English:* ESP32-S3-Super Mini is a very compact (approx. 22.5 x 18 mm) ESP32-S3 breakout board, sold by multiple vendors as a low-cost, small-footprint alternative to larger ESP32-S3 dev boards. It comes with an onboard Type-C USB connector for programming and power. The board used in this project is equipped with an ESP32-S3 chip featuring 4MB embedded Flash and 2MB embedded PSRAM (confirmed via `esptool` on this specific unit). It includes hardware encryption acceleration, RNG, HMAC and Digital Signature modules, and supports Wi-Fi + BLE 5.0. Board layout, silkscreen labels, and exact pin breakout can vary between vendors selling boards under this same name — always double-check against the specific unit in hand where in doubt.
 
