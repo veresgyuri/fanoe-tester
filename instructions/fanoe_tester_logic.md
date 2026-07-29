@@ -16,7 +16,31 @@ Fw: https://circuitpython.org/board/waveshare_esp32_s3_zero/
 Board ID: waveshare_esp32_s3_zero, UID: c3f0202e6b4a  
   
 - Billentyűzet: 3x2 mátrix - PROTECTA TAST-5V P283
-- Kijelző: 2.25" TFT szines 76*284 - ST7789 vezérlővel
+- Kijelző: 2.25" TFT szines 76*284 - ST7789 vezérlővel  
+
+```
+************ KAPCSOLÁSI RAJZ ******************
+
+                      TÁPFESZÜLTSÉG
+PullUp resistors          REPL
+   on the PCB              ↓
+     ↓                   USB-C                  2.25" SPI TFT
+          K           ┌────┬──┬────┐      ┌──────────────────────────┐
+    5,6k -E--Column1-─┤IO1 └──┘IO13├──────┤SCL                      +├─ 3V3
+    5,6k -Y--Column2-─┤IO2     IO12├──────┤SDA                      -├─ GND  
+    5,6k -P--Column3-─┤IO3     IO11├──────┤RST      ST7789SP3        │  
+          A ── Row1-──┤IO4     IO10├──────┤DC                        │   
+          D ── Row2-──┤IO5     IO9 ├──────┤CS         76*284         │   
+                      │        IO8 ├──────┤BL                        │ 
+ [ENTER] [LEFT] [UP]  │            │      └──────────────────────────┘
+ [ESC] [RIGHT] [DOWN] │  ESP32-S3  │  
+                      │ Super Mini │  3V3
+                      │            │  ┌┴┐
+ NO Contact->-DigIn ──┤IO6         │  │ │150     
+                      │            │  └┬┘ 
+    Relay-<-DigOut--──┤IO7    *IO14├───┴──-<---[Rx]---GND
+                      └────────────┘
+```
 
 ************ Directory and file structure ************
 
@@ -284,6 +308,7 @@ IO7 = OFF azonnal (biztonsági lekapcsolás, függetlenül az aktuális állapot
         0.01 - kezdés... (2026-07-13)
         0.11 - boot sequence flow chart (2026-07-15)
         0.20 - automatikus mérési ciklus állapotgép specifikáció (2026-07-26)
-        0,30 - menu struktúra hozzáadva, menu_data.py (2026-07-28)
+        0.30 - menu struktúra hozzáadva, menu_data.py (2026-07-28)
+        0.31 - kapcsolási rajz hozzáadva (2026-07-29)
 
 """
