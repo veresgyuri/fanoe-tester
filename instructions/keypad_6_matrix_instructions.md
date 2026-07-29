@@ -5,10 +5,22 @@ applyTo: '**/*keypad*'
 
 # 6-Button Matrix Keypad (3 columns × 2 rows)
 ### EXPLANATION FOR CARBON-BASED DEVELOPERS 😊
-<img src="../images/protecta_tast_5v.jpg" alt="6-button matrix keypad" width="180">
-<img src="../images/protect_tast_5v.jpg" alt="6-button matrix keypad" width="160">
-<img src="../images/protect_tast_bontva.jpg" alt="6-button matrix keypad" width="200">
-<img src="../images/6_keypad_esp32s3_tast_schem.jpg" alt="6-button matrix keypad" width="120">
+<table>
+  <tr>
+    <td align="center">
+      <img src="../images/protecta_tast_5v.jpg" alt="6-button matrix keypad" width="180">
+    </td>
+    <td align="center">
+      <img src="../images/protect_tast_5v.jpg" alt="6-button matrix keypad" width="160">
+    </td>
+    <td align="center">
+      <img src="../images/protect_tast_bontva.jpg" alt="6-button matrix keypad" width="200">
+    </td>
+    <td align="center">
+      <img src="../images/6_keypad_esp32s3_tast_schem.jpg" alt="6-button matrix keypad" width="120">
+    </td>
+  </tr>
+</table>
 
 *English:*
 This is a 6-button tactile keypad salvaged/repurposed from an older 5V panel that originally drove a 2×16 character LCD (that LCD and its driver electronics have been removed for this project). The 6 buttons are UP, DOWN, LEFT, RIGHT, ENTER, ESC, wired as a genuine 3-column × 2-row matrix — not 6 independent GPIO lines. Each column already has its own **physical 5.6kΩ pull-up resistor on the PCB** (to 3.3V), so no internal GPIO pull-up/pull-down configuration is needed on the column lines. Buttons are normally-open and close the circuit when pressed, pulling the sensed line **low** (active-low logic). The panel also carries a small piezo buzzer (BEEP) and a status LED (L1), both currently unused/reserved for future features — no GPIO is assigned to them yet.
