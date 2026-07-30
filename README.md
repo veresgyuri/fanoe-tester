@@ -57,15 +57,15 @@ PullUp resistors          REPL
 
 ## Hardver
 
-A projekthez az alábbi hardverösszetevőket használja:
+A projekthez használt hardverösszetevők:
 - ESP32-S3 Super Mini alaplap
-- 6 gombos mátrix billentyűzet
-- 76 × 284 pixel-es ST7789 vezérlésű TFT kijelző
+- 6 gombos Protecta mátrix billentyűzet
+- 76×284 pixel-es ST7789 vezérlésű TFT kijelző
 - USB-C kapcsolat fejlesztéshez / hibakereséshez
 
 ## Fájlok és szerepük
 
-- [code.py](code.py) – a fő alkalmazás, a kijelzővezérlés, billentyűzetkezelés és a menülogika.
+- [code.py](code.py) – a fő alkalmazás, a kijelzővezérlés, billentyűzetkezelés és a menü,- és méréslogika.
 - [menu_data.py](menu_data.py) – a menüfa és a felhasználói felület adatai.
 - [tft_messages.py](tft_messages.py) - A szines kijelző üzenetei.
 - [boot.py](boot.py) – induláskor beállítja a felhasználói / fejlesztői módot, és kezeli az USB-meghajtó viselkedését.
@@ -73,11 +73,11 @@ A projekthez az alábbi hardverösszetevőket használja:
 - [fonts/](fonts/) – a kijelzőn használt betűtípusok, karakterek.
 - [lib/](lib/) – a CircuitPython futtatáshoz szükséges könyvtárak.
 
-### Az összes kód és a kapcsolódó fájlok zöme is - ingyenes Ai támogatással készült.
+### Az összes kód és a kapcsolódó fájlok zöme - ingyenes Ai támogatással készült.
 Ezek gerincét a Claude (Sonet5 - medium) free alkotta, webböngészős projekt környezetben futtatva.  
 A nyelvi modell működési irányát az [AGENTS.md](AGENTS.md) és a [.copilot-instructions.md](.copilot-instructions.md) jelöli ki.
 
-A REPL megjelenítést, a fájlok gyors feltöltését és ellenőrzősét a Thonny 4.1.7 programmal végeztem.
+A REPL megjelenítése, a fájlok gyors feltöltése és ellenőrzőse a Thonny 4.1.7 programmal történt.
 
 A VsCode 1.13x.x főként a szöveges szerkesztésben és a verzió követésben segédkezett.
 
