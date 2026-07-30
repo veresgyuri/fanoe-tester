@@ -7,10 +7,12 @@
 import time
 import board
 import busio
+import digitalio
 import displayio
 import gc
 import keypad
 import microcontroller
+import neopixel
 import os
 import pwmio
 from adafruit_bitmap_font import bitmap_font
@@ -22,7 +24,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v4"
+VERSION = "0v5 - Action IO7"
 
 
 def dprint(*args, **kwargs) -> None:
@@ -66,10 +68,18 @@ LINE2_Y = 37
 
 COLOR_BG_NORMAL = 0x000000
 COLOR_TEXT_NORMAL = 0xFFFFFF
+COLOR_TEXT_DANGER = 0xFF0000
 COLOR_BG_HIGHLIGHT = 0xFFCC00
 COLOR_TEXT_HIGHLIGHT = 0x000000
 COLOR_BORDER_HIGHLIGHT = 0x0033FF
 BORDER_THICKNESS = 3
+
+# --- FÁNOE RELÉ ÉS STÁTUSZ LED (Kézi BE módhoz) ---
+RELAY_PIN = board.IO7
+STATUS_LED_PIN = board.IO48  # WS2812 - MINDIG board.IO48 explicit, nem board.NEOPIXEL
+STATUS_LED_GREEN = (0, 40, 0)
+STATUS_LED_RED = (40, 0, 0)
+MANUAL_HOLD_UPDATE_INTERVAL = 0.05  # ms-szamlalo frissitesi gyakorisaga
 
 # --- WELCOME SCREEN KONFIGURÁCIÓ ---
 WELCOME_TEXT = "FANOE tester"
@@ -203,10 +213,17 @@ class Display:
                 edge = x < thickness or x >= w - thickness or y < thickness or y >= h - thickness
                 bmp[x, y] = 1 if edge else 0
 
-    def set_line(self, is_top, text, highlighted):
+    def set_line(self, is_top, text, highlighted, bg_color=None, text_color=None):
+        """bg_color/text_color megadásával a highlighted paramétert felülírja
+        (pl. a Kézi BE mód piros "BE parancs kiadva" feliratához) - normál
+        menü-használatnál ez a két paraméter üresen marad."""
         palette = self.top_palette if is_top else self.bottom_palette
         lbl = self.line1_label if is_top else self.line2_label
-        if highlighted:
+        if bg_color is not None and text_color is not None:
+            palette[0] = bg_color
+            palette[1] = bg_color
+            lbl.color = text_color
+        elif highlighted:
             palette[0] = COLOR_BG_HIGHLIGHT
             palette[1] = COLOR_BORDER_HIGHLIGHT
             lbl.color = COLOR_TEXT_HIGHLIGHT
@@ -281,6 +298,50 @@ class Display:
         # kővetkező self.display.root_group állítás (splash) ne maradjon
         # bent a menü indulásakor.
         self.display.root_group = self.splash
+
+
+class RelayControl:
+    """A FANOE relé (IO7) közvetlen ki/be kapcsolása - csak a Kézi BE
+    módhoz; a mérési ciklus (FanoeMeasurementCycle) majd külön fogja
+    kezelni ugyanezt a pint, saját logikával."""
+
+    def __init__(self, pin):
+        self._pin = digitalio.DigitalInOut(pin)
+        self._pin.direction = digitalio.Direction.OUTPUT
+        self._pin.value = False
+
+    def on(self):
+        self._pin.value = True
+
+    def off(self):
+        self._pin.value = False
+
+
+class StatusLed:
+    """WS2812 LED (board.IO48) - csak a Kézi BE mód állapotjelzésére.
+    start()/stop() között foglalja/engedi el a pint, hogy más funkció is
+    használhassa máskor, ha kell."""
+
+    def __init__(self, pin):
+        self._pin = pin
+        self._pixel = None
+
+    def start(self):
+        if self._pixel is None:
+            self._pixel = neopixel.NeoPixel(self._pin, 1, brightness=1.0, auto_write=True)
+
+    def set_green(self):
+        if self._pixel is not None:
+            self._pixel[0] = STATUS_LED_GREEN
+
+    def set_red(self):
+        if self._pixel is not None:
+            self._pixel[0] = STATUS_LED_RED
+
+    def stop(self):
+        if self._pixel is not None:
+            self._pixel.deinit()
+            self._pixel = None
 
 
 class MenuNavigator:
@@ -417,6 +478,12 @@ class FanoeTesterApp:
         self.display = Display()
         self.keypad = Keypad(ROW_PINS, COLUMN_PINS, KEY_NAMES, LONG_PRESS_SEC)
         self.navigator = MenuNavigator(MENU_ROOT)
+        self.relay = RelayControl(RELAY_PIN)
+        self.led = StatusLed(STATUS_LED_PIN)
+        self._manual_hold_active = False  # True, amíg a "FÁNOE KÉZI BE" leaf-en állunk
+        self._manual_hold_pressed = False  # True, amíg ENTER lenyomva tartva
+        self._manual_hold_start = None
+        self._manual_hold_last_update = 0
         self._actions = {
             "restart_device": self._action_restart_device,
             "info_cpu_freq": self._action_info_cpu_freq,
@@ -425,6 +492,7 @@ class FanoeTesterApp:
             "info_board_id": self._action_info_board_id,
             "info_chip_uid": self._action_info_chip_uid,
             "info_sw_version": self._action_info_sw_version,
+            "fanoe_manual_hold_enter": self._action_fanoe_manual_hold_enter,
         }
 
     def _render(self):
@@ -432,17 +500,20 @@ class FanoeTesterApp:
         self.display.show_pair(top_text, bottom_text, highlight_pos)
 
     def _dispatch_action(self, item):
-        """A menu_data.py 'action' kulcsát a megfelelő metódusra képezi le."""
+        """A menu_data.py 'action' kulcsát a megfelelő metódusra képezi le.
+        Visszaadja a handler eredményét: True, ha a handler már renderelt
+        saját (élő) tartalmat a kijelzőre (a hívónak nem kell generikus
+        render-t futtatnia utána), egyébként None/False."""
         action = item.get("action")
         if not action:
             dprint("Statikus/kamu screen, nincs hozzarendelt action.")
-            return
+            return False
         handler = self._actions.get(action)
         if handler is None:
             dprint("Ismeretlen action: %s (nincs meg implementalva)" % action)
-            return
+            return False
         dprint("Action inditasa: %s" % action)
-        handler()
+        return handler()
 
     def _action_restart_device(self):
         dprint("Ujrainditas... (microcontroller.reset())")
@@ -452,6 +523,7 @@ class FanoeTesterApp:
         freq_mhz = microcontroller.cpu.frequency // 1_000_000
         dprint("CPU frekvencia: %d MHz" % freq_mhz)
         self.display.show_pair(" ESP32-S3 CPU órajel:", "     %d MHz" % freq_mhz, None)
+        return True
 
     def _action_info_cpu_temp(self):
         try:
@@ -462,25 +534,53 @@ class FanoeTesterApp:
             dprint("microcontroller.cpu.temperature nem elerheto ezen a chipen")
             text = "     nem elerheto"
         self.display.show_pair(" ESP32-S3 CPU hőfok:", text, None)
+        return True
 
     def _action_info_free_ram(self):
         free_kb = gc.mem_free() // 1024
         dprint("Szabad RAM: %d KB" % free_kb)
         self.display.show_pair(" Szabad RAM memória:", "    %d KB" % free_kb, None)
+        return True
 
     def _action_info_board_id(self):
         board_id = os.uname().machine
         dprint("Board azonosito: %s" % board_id)
         self.display.show_pair(" Board azonosító:", "  " + board_id[:20], None)
+        return True
 
     def _action_info_chip_uid(self):
         uid_hex = ":".join("%02X" % b for b in microcontroller.cpu.uid)
         dprint("Chip UID: %s" % uid_hex)
         self.display.show_pair(" Chip UID:", "  " + uid_hex, None)
+        return True
 
     def _action_info_sw_version(self):
         dprint("Software verzio: %s" % VERSION)
         self.display.show_pair(" Software verzió:", "   %s" % VERSION, None)
+        return True
+
+    def _action_fanoe_manual_hold_enter(self):
+        """A 'FÁNOE KÉZI BE' leaf-be lépéskor fut le egyszer: a LED-et
+        zöldre állítja, jelzi, hogy mostantól az ENTER folyamatos nyomva
+        tartását figyeljük. A statikus screen-t a generikus render mutatja
+        (ezért False-t adunk vissza)."""
+        self._manual_hold_active = True
+        self.led.start()
+        self.led.set_green()
+        dprint("Kezi BE mod aktiv, LED zold")
+        return False
+
+    def _cleanup_manual_hold(self):
+        """Amint elhagyjuk a 'FÁNOE KÉZI BE' leaf-et (BAL/ESC), a relét és
+        a LED-et biztonságosan lekapcsoljuk/elengedjük - nem visszük ki az
+        állapotot az almenüből."""
+        if not self._manual_hold_active:
+            return
+        self._manual_hold_active = False
+        self._manual_hold_pressed = False
+        self.relay.off()
+        self.led.stop()
+        dprint("Kezi BE mod elhagyva - relay/LED torolve")
 
     def run(self):
         dprint("FanoeTesterApp starting")
@@ -489,6 +589,17 @@ class FanoeTesterApp:
 
         while True:
             event = self.keypad.poll()
+
+            if self._manual_hold_pressed:
+                now = time.monotonic()
+                if now - self._manual_hold_last_update >= MANUAL_HOLD_UPDATE_INTERVAL:
+                    elapsed_ms = int((now - self._manual_hold_start) * 1000)
+                    self.display.set_line(
+                        False, "     %d ms" % elapsed_ms, False,
+                        bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_NORMAL,
+                    )
+                    self._manual_hold_last_update = now
+
             if not event:
                 continue
 
@@ -496,6 +607,24 @@ class FanoeTesterApp:
 
             if phase == "pressed":
                 dprint("Lenyomva: %s" % key_name)
+
+                if self._manual_hold_active and key_name == "ENTER":
+                    self._manual_hold_pressed = True
+                    self._manual_hold_start = time.monotonic()
+                    self._manual_hold_last_update = self._manual_hold_start
+                    self.relay.on()
+                    self.led.set_red()
+                    dprint("Vezérlő parancs kiadva - IO7")
+                    self.display.set_line(
+                        True, " BE parancs kiadva", False,
+                        bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_DANGER,
+                    )
+                    self.display.set_line(
+                        False, "     0 ms", False,
+                        bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_NORMAL,
+                    )
+                    continue
+
                 if key_name in ("ENTER", "RIGHT"):
                     if self.navigator.in_leaf_screen:
                         confirmed_item = self.navigator.confirm_action(key_name)
@@ -505,11 +634,14 @@ class FanoeTesterApp:
                     else:
                         activated_item = self.navigator.try_activate(key_name)
                         if activated_item is not None and activated_item.get("auto_dispatch"):
-                            self._dispatch_action(activated_item)
+                            rendered_custom = self._dispatch_action(activated_item)
+                            if not rendered_custom:
+                                self._render()
                         else:
                             self._render()
                 elif key_name == "LEFT":
                     self.navigator.go_left()
+                    self._cleanup_manual_hold()
                     self._render()
                 elif key_name == "UP":
                     self.navigator.move_updown(-1)
@@ -518,13 +650,21 @@ class FanoeTesterApp:
                     self.navigator.move_updown(1)
                     self._render()
 
-            elif phase == "released" and key_name == "ESC":
-                dprint("ESC felengedve, nyomvatartas: %.2f s" % duration)
-                if self.keypad.is_long_press(duration):
-                    self.navigator.jump_to_root()
-                else:
-                    self.navigator.go_left()
-                self._render()
+            elif phase == "released":
+                if key_name == "ENTER" and self._manual_hold_active:
+                    self._manual_hold_pressed = False
+                    self.relay.off()
+                    self.led.set_green()
+                    dprint("IO7 parancs vege (elengedve)")
+                    self._render()
+                elif key_name == "ESC":
+                    dprint("ESC felengedve, nyomvatartas: %.2f s" % duration)
+                    if self.keypad.is_long_press(duration):
+                        self.navigator.jump_to_root()
+                    else:
+                        self.navigator.go_left()
+                    self._cleanup_manual_hold()
+                    self._render()
 
 
 def main():
