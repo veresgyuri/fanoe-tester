@@ -35,4 +35,12 @@ TFT_MESSAGES = {
 
     # --- Megszakítás (ESC aktív állapotban) ---
     "aborted_by_user": ("Mérés megszakítva", ""),
+
+    # --- Ohm-mérő mód (folyamatosan frissülő, IO14) ---
+    "ohm_meter_high": "> 500 Ω",
+    "ohm_meter_open": "- - -",
+
+    # --- Beállítás-mentés visszajelzése (settings.toml) ---
+    "save_ok": "Sikeres mentés",
+    "save_fail": "Sikertelen mentés",
 }

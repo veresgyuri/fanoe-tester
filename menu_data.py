@@ -14,6 +14,8 @@ MENU_ROOT = [
         "label": " ELLENÁLLÁS MÉRÉS ⏎",
         "kind": "leaf",
         "activate_keys": {"ENTER"},
+        "action": "ohm_meter_enter",
+        "auto_dispatch": True,
         "screen": (" Ohm-mérés üzemmód", "   123.4 Ω (kamu)"),
     },
     {

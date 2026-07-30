@@ -5,6 +5,7 @@
 # dispatch-elése is (lásd FanoeTesterApp._dispatch_action).
 
 import time
+import analogio
 import board
 import busio
 import digitalio
@@ -24,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v5 - Action IO7"
+VERSION = "0v6 - Ohm meter IO14"
 
 
 def dprint(*args, **kwargs) -> None:
@@ -69,17 +70,27 @@ LINE2_Y = 37
 COLOR_BG_NORMAL = 0x000000
 COLOR_TEXT_NORMAL = 0xFFFFFF
 COLOR_TEXT_DANGER = 0xFF0000
+COLOR_TEXT_WARNING = 0xFFFF00
 COLOR_BG_HIGHLIGHT = 0xFFCC00
 COLOR_TEXT_HIGHLIGHT = 0x000000
 COLOR_BORDER_HIGHLIGHT = 0x0033FF
 BORDER_THICKNESS = 3
 
-# --- FÁNOE RELÉ ÉS STÁTUSZ LED (Kézi BE módhoz) ---
+# --- FÁNOE RELÉ ÉS STÁTUSZ LED (Kézi BE / Ohm-mérő módhoz) ---
 RELAY_PIN = board.IO7
 STATUS_LED_PIN = board.IO48  # WS2812 - MINDIG board.IO48 explicit, nem board.NEOPIXEL
 STATUS_LED_GREEN = (0, 40, 0)
 STATUS_LED_RED = (40, 0, 0)
+STATUS_LED_ORANGE = (40, 16, 0)
 MANUAL_HOLD_UPDATE_INTERVAL = 0.05  # ms-szamlalo frissitesi gyakorisaga
+
+# --- OHM-MÉRŐ MÓD (folyamatos ellenállásmérés, IO14) ---
+OHM_METER_PIN = board.IO14
+OHM_METER_REF_OHMS = 150
+OHM_METER_MAX_OHMS = 500
+OHM_METER_SAMPLE_COUNT = 3  # egyszerű mozgóátlag a simításhoz
+OHM_METER_UPDATE_INTERVAL = 0.1  # 100ms - lásd ADC_SAMPLE_INTERVAL_MS a logic.md-ben
+OHM_METER_REPL_INTERVAL = 2.0  # REPL-re csak 2 mp-enként írunk
 
 # --- WELCOME SCREEN KONFIGURÁCIÓ ---
 WELCOME_TEXT = "FANOE tester"
@@ -338,10 +349,54 @@ class StatusLed:
         if self._pixel is not None:
             self._pixel[0] = STATUS_LED_RED
 
+    def set_orange(self):
+        if self._pixel is not None:
+            self._pixel[0] = STATUS_LED_ORANGE
+
     def stop(self):
         if self._pixel is not None:
             self._pixel.deinit()
             self._pixel = None
+
+
+class OhmMeter:
+    """FANOE ellenállás folyamatos mérése (IO14), 150R referenciával.
+    R_fanoe = ref_ohms * V_adc / (V_ref - V_adc). start()/stop() között
+    foglalja/engedi el az ADC pint. read_ohms() egy nyers mintát vesz,
+    egy rövid mozgóátlaggal simítja, és a simított értéket adja vissza -
+    vagy None-t, ha a kör gyakorlatilag szakadt (ADC a tápfeszültségen)."""
+
+    OPEN_CIRCUIT_MARGIN_V = 0.01
+
+    def __init__(self, pin, ref_ohms, sample_count):
+        self._pin = pin
+        self._ref_ohms = ref_ohms
+        self._sample_count = sample_count
+        self._adc = None
+        self._samples = []
+
+    def start(self):
+        if self._adc is None:
+            self._adc = analogio.AnalogIn(self._pin)
+        self._samples = []
+
+    def stop(self):
+        if self._adc is not None:
+            self._adc.deinit()
+            self._adc = None
+        self._samples = []
+
+    def read_ohms(self):
+        v_ref = self._adc.reference_voltage
+        v_adc = (self._adc.value / 65535) * v_ref
+        if v_ref - v_adc < self.OPEN_CIRCUIT_MARGIN_V:
+            self._samples = []
+            return None
+        raw_ohms = self._ref_ohms * v_adc / (v_ref - v_adc)
+        self._samples.append(raw_ohms)
+        if len(self._samples) > self._sample_count:
+            self._samples.pop(0)
+        return sum(self._samples) / len(self._samples)
 
 
 class MenuNavigator:
@@ -480,10 +535,14 @@ class FanoeTesterApp:
         self.navigator = MenuNavigator(MENU_ROOT)
         self.relay = RelayControl(RELAY_PIN)
         self.led = StatusLed(STATUS_LED_PIN)
+        self.ohm_meter = OhmMeter(OHM_METER_PIN, OHM_METER_REF_OHMS, OHM_METER_SAMPLE_COUNT)
         self._manual_hold_active = False  # True, amíg a "FÁNOE KÉZI BE" leaf-en állunk
         self._manual_hold_pressed = False  # True, amíg ENTER lenyomva tartva
         self._manual_hold_start = None
         self._manual_hold_last_update = 0
+        self._ohm_meter_active = False  # True, amíg az "ELLENÁLLÁS MÉRÉS" leaf-en állunk
+        self._ohm_meter_last_update = 0
+        self._ohm_meter_last_repl = 0
         self._actions = {
             "restart_device": self._action_restart_device,
             "info_cpu_freq": self._action_info_cpu_freq,
@@ -493,6 +552,7 @@ class FanoeTesterApp:
             "info_chip_uid": self._action_info_chip_uid,
             "info_sw_version": self._action_info_sw_version,
             "fanoe_manual_hold_enter": self._action_fanoe_manual_hold_enter,
+            "ohm_meter_enter": self._action_ohm_meter_enter,
         }
 
     def _render(self):
@@ -582,6 +642,41 @@ class FanoeTesterApp:
         self.led.stop()
         dprint("Kezi BE mod elhagyva - relay/LED torolve")
 
+    def _action_ohm_meter_enter(self):
+        """Az 'ELLENÁLLÁS MÉRÉS' leaf-be lépéskor fut le egyszer: elindítja
+        az ADC-t, a LED-et narancssárgára állítja, és felrajzolja a
+        kezdő képet. A tényleges élő frissítés a run() fő ciklusában
+        történik (lásd _ohm_meter_active)."""
+        self._ohm_meter_active = True
+        self._ohm_meter_last_update = time.monotonic()
+        self._ohm_meter_last_repl = self._ohm_meter_last_update
+        self.ohm_meter.start()
+        self.led.start()
+        self.led.set_orange()
+        self.display.set_line(True, " Ohm-mérés üzemmód", False)
+        self.display.set_line(
+            False, "  mérés indul...", False,
+            bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_WARNING,
+        )
+        dprint("Ohm-mero mod aktiv, LED narancs")
+        return True
+
+    def _cleanup_ohm_meter(self):
+        """Amint elhagyjuk az 'ELLENÁLLÁS MÉRÉS' leaf-et (BAL/ESC), az
+        ADC-t és a LED-et elengedjük."""
+        if not self._ohm_meter_active:
+            return
+        self._ohm_meter_active = False
+        self.ohm_meter.stop()
+        self.led.stop()
+        dprint("Ohm-mero mod elhagyva - ADC/LED torolve")
+
+    def _cleanup_active_modes(self):
+        """Minden folyamatos/speciális almenü-mód takarítása egy helyen -
+        bővíthető, ha később újabb ilyen mód (pl. mérési ciklus) készül."""
+        self._cleanup_manual_hold()
+        self._cleanup_ohm_meter()
+
     def run(self):
         dprint("FanoeTesterApp starting")
         self.display.show_welcome()
@@ -599,6 +694,26 @@ class FanoeTesterApp:
                         bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_NORMAL,
                     )
                     self._manual_hold_last_update = now
+
+            if self._ohm_meter_active:
+                now = time.monotonic()
+                if now - self._ohm_meter_last_update >= OHM_METER_UPDATE_INTERVAL:
+                    ohms = self.ohm_meter.read_ohms()
+                    if ohms is None:
+                        text = format_message("ohm_meter_open")
+                    elif ohms > OHM_METER_MAX_OHMS:
+                        text = format_message("ohm_meter_high")
+                    else:
+                        text = "%.1f Ω" % ohms
+                    self.display.set_line(
+                        False, "  " + text, False,
+                        bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_WARNING,
+                    )
+                    self._ohm_meter_last_update = now
+
+                    if now - self._ohm_meter_last_repl >= OHM_METER_REPL_INTERVAL:
+                        dprint("Ohm-mero: %s" % text)
+                        self._ohm_meter_last_repl = now
 
             if not event:
                 continue
@@ -641,7 +756,7 @@ class FanoeTesterApp:
                             self._render()
                 elif key_name == "LEFT":
                     self.navigator.go_left()
-                    self._cleanup_manual_hold()
+                    self._cleanup_active_modes()
                     self._render()
                 elif key_name == "UP":
                     self.navigator.move_updown(-1)
@@ -663,7 +778,7 @@ class FanoeTesterApp:
                         self.navigator.jump_to_root()
                     else:
                         self.navigator.go_left()
-                    self._cleanup_manual_hold()
+                    self._cleanup_active_modes()
                     self._render()
 
 
