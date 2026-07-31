@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v6 - Ohm meter IO14"
+VERSION = "0v62 -CPU temp .0f"
 
 
 def dprint(*args, **kwargs) -> None:
@@ -465,7 +465,7 @@ class MenuNavigator:
         action = item.get("action")
         if not action:
             return None
-        confirm_keys = item.get("confirm_keys", {"ENTER"})
+        confirm_keys = item.get("confirm_keys", set())
         if key_name not in confirm_keys:
             return None
         self.in_leaf_screen = False
@@ -588,8 +588,8 @@ class FanoeTesterApp:
     def _action_info_cpu_temp(self):
         try:
             temp_c = microcontroller.cpu.temperature
-            text = "     %.1f °C" % temp_c
-            dprint("CPU homerseklet: %.1f C" % temp_c)
+            text = "     %.0f °C" % temp_c
+            dprint("CPU homerseklet: %.0f C" % temp_c)
         except (AttributeError, NotImplementedError):
             dprint("microcontroller.cpu.temperature nem elerheto ezen a chipen")
             text = "     nem elerheto"
@@ -759,11 +759,13 @@ class FanoeTesterApp:
                     self._cleanup_active_modes()
                     self._render()
                 elif key_name == "UP":
-                    self.navigator.move_updown(-1)
-                    self._render()
+                    if not self.navigator.in_leaf_screen:
+                        self.navigator.move_updown(-1)
+                        self._render()
                 elif key_name == "DOWN":
-                    self.navigator.move_updown(1)
-                    self._render()
+                    if not self.navigator.in_leaf_screen:
+                        self.navigator.move_updown(1)
+                        self._render()
 
             elif phase == "released":
                 if key_name == "ENTER" and self._manual_hold_active:

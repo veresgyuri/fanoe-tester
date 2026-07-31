@@ -16,7 +16,7 @@ MENU_ROOT = [
         "activate_keys": {"ENTER"},
         "action": "ohm_meter_enter",
         "auto_dispatch": True,
-        "screen": (" Ohm-mérés üzemmód", "   123.4 Ω (kamu)"),
+        "screen": (" Ohm-mérés üzemmód", ""),
     },
     {
         "label": " FÁNOE KÉZI BE ▶",
