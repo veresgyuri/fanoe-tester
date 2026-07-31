@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v62 -CPU temp .0f"
+VERSION = "0v7 - f-string"
 
 
 def dprint(*args, **kwargs) -> None:
@@ -183,7 +183,7 @@ class Display:
         )
 
     def _init_font(self):
-        dprint("Loading %s" % FONT_PATH)
+        dprint(f"Loading {FONT_PATH}")
         self.font = bitmap_font.load_font(FONT_PATH)
 
     def _init_layout(self):
@@ -429,7 +429,7 @@ class MenuNavigator:
         elif new_index >= top_index + self.VISIBLE_ROWS:
             top_index = new_index - (self.VISIBLE_ROWS - 1)
         self.nav_stack[-1] = (siblings, new_index, top_index)
-        dprint("UP/DOWN -> index=%d (%s)" % (new_index, siblings[new_index]["label"]))
+        dprint(f"UP/DOWN -> index={new_index} ({siblings[new_index]['label']})")
 
     def try_activate(self, key_name):
         """Visszaadja az aktivált leaf item-et, ha egy leaf 'screen'-be
@@ -442,16 +442,15 @@ class MenuNavigator:
         allowed = item.get("activate_keys", {"ENTER", "RIGHT"})
         if key_name not in allowed:
             dprint(
-                "%s hatastalan ezen az elemen (%s), csak %s aktival"
-                % (key_name, item["label"], allowed)
+                f"{key_name} hatastalan ezen az elemen ({item['label']}), csak {allowed} aktival"
             )
             return None
         if item["kind"] == "menu":
             self.nav_stack.append((item["children"], 0, 0))
-            dprint("Belepes almenube: %s" % item["label"])
+            dprint(f"Belepes almenube: {item['label']}")
             return None
         self.in_leaf_screen = True
-        dprint("Leaf screen mutatasa: %s" % item["label"])
+        dprint(f"Leaf screen mutatasa: {item['label']}")
         return item
 
     def confirm_action(self, key_name):
@@ -469,7 +468,7 @@ class MenuNavigator:
         if key_name not in confirm_keys:
             return None
         self.in_leaf_screen = False
-        dprint("Action megerositve: %s" % action)
+        dprint(f"Action megerositve: {action}")
         return item
 
     def go_left(self):
@@ -502,7 +501,7 @@ class MenuNavigator:
         ]
         self.in_leaf_screen = False
         self.nav_stack.append((lines, 0, 0))
-        dprint("RESULT lista megjelenitve, %d elem" % len(lines))
+        dprint(f"RESULT lista megjelenitve, {len(lines)} elem")
 
     def render_state(self):
         """Visszaadja, mit kell a kijelzőnek mutatnia:
@@ -570,9 +569,9 @@ class FanoeTesterApp:
             return False
         handler = self._actions.get(action)
         if handler is None:
-            dprint("Ismeretlen action: %s (nincs meg implementalva)" % action)
+            dprint(f"Ismeretlen action: {action} (nincs meg implementalva)")
             return False
-        dprint("Action inditasa: %s" % action)
+        dprint(f"Action inditasa: {action}")
         return handler()
 
     def _action_restart_device(self):
@@ -581,15 +580,15 @@ class FanoeTesterApp:
 
     def _action_info_cpu_freq(self):
         freq_mhz = microcontroller.cpu.frequency // 1_000_000
-        dprint("CPU frekvencia: %d MHz" % freq_mhz)
-        self.display.show_pair(" ESP32-S3 CPU órajel:", "     %d MHz" % freq_mhz, None)
+        dprint(f"CPU frekvencia: {freq_mhz} MHz")
+        self.display.show_pair(" ESP32-S3 CPU órajel:", f"     {freq_mhz} MHz", None)
         return True
 
     def _action_info_cpu_temp(self):
         try:
             temp_c = microcontroller.cpu.temperature
-            text = "     %.0f °C" % temp_c
-            dprint("CPU homerseklet: %.0f C" % temp_c)
+            text = f"     {temp_c:.0f} °C"
+            dprint(f"CPU homerseklet: {temp_c:.0f} C")
         except (AttributeError, NotImplementedError):
             dprint("microcontroller.cpu.temperature nem elerheto ezen a chipen")
             text = "     nem elerheto"
@@ -598,25 +597,25 @@ class FanoeTesterApp:
 
     def _action_info_free_ram(self):
         free_kb = gc.mem_free() // 1024
-        dprint("Szabad RAM: %d KB" % free_kb)
-        self.display.show_pair(" Szabad RAM memória:", "    %d KB" % free_kb, None)
+        dprint(f"Szabad RAM: {free_kb} KB")
+        self.display.show_pair(" Szabad RAM memória:", f"    {free_kb} KB", None)
         return True
 
     def _action_info_board_id(self):
         board_id = os.uname().machine
-        dprint("Board azonosito: %s" % board_id)
+        dprint(f"Board azonosito: {board_id}")
         self.display.show_pair(" Board azonosító:", "  " + board_id[:20], None)
         return True
 
     def _action_info_chip_uid(self):
-        uid_hex = ":".join("%02X" % b for b in microcontroller.cpu.uid)
-        dprint("Chip UID: %s" % uid_hex)
+        uid_hex = ":".join(f"{b:02X}" for b in microcontroller.cpu.uid)
+        dprint(f"Chip UID: {uid_hex}")
         self.display.show_pair(" Chip UID:", "  " + uid_hex, None)
         return True
 
     def _action_info_sw_version(self):
-        dprint("Software verzio: %s" % VERSION)
-        self.display.show_pair(" Software verzió:", "   %s" % VERSION, None)
+        dprint(f"Software verzio: {VERSION}")
+        self.display.show_pair(" Software verzió:", f"   {VERSION}", None)
         return True
 
     def _action_fanoe_manual_hold_enter(self):
@@ -690,7 +689,7 @@ class FanoeTesterApp:
                 if now - self._manual_hold_last_update >= MANUAL_HOLD_UPDATE_INTERVAL:
                     elapsed_ms = int((now - self._manual_hold_start) * 1000)
                     self.display.set_line(
-                        False, "     %d ms" % elapsed_ms, False,
+                        False, f"     {elapsed_ms} ms", False,
                         bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_NORMAL,
                     )
                     self._manual_hold_last_update = now
@@ -704,7 +703,7 @@ class FanoeTesterApp:
                     elif ohms > OHM_METER_MAX_OHMS:
                         text = format_message("ohm_meter_high")
                     else:
-                        text = "%.1f Ω" % ohms
+                        text = f"{ohms:.1f} Ω"
                     self.display.set_line(
                         False, "  " + text, False,
                         bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_WARNING,
@@ -712,7 +711,7 @@ class FanoeTesterApp:
                     self._ohm_meter_last_update = now
 
                     if now - self._ohm_meter_last_repl >= OHM_METER_REPL_INTERVAL:
-                        dprint("Ohm-mero: %s" % text)
+                        dprint(f"Ohm-mero: {text}")
                         self._ohm_meter_last_repl = now
 
             if not event:
@@ -721,7 +720,7 @@ class FanoeTesterApp:
             key_name, phase, duration = event
 
             if phase == "pressed":
-                dprint("Lenyomva: %s" % key_name)
+                dprint(f"Lenyomva: {key_name}")
 
                 if self._manual_hold_active and key_name == "ENTER":
                     self._manual_hold_pressed = True
@@ -775,7 +774,7 @@ class FanoeTesterApp:
                     dprint("IO7 parancs vege (elengedve)")
                     self._render()
                 elif key_name == "ESC":
-                    dprint("ESC felengedve, nyomvatartas: %.2f s" % duration)
+                    dprint(f"ESC felengedve, nyomvatartas: {duration:.2f} s")
                     if self.keypad.is_long_press(duration):
                         self.navigator.jump_to_root()
                     else:
