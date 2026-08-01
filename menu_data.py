@@ -97,6 +97,14 @@ MENU_ROOT = [
                 "screen": (" ESP32-S3 CPU hőfok:", "     ... °C"),
             },
             {
+                "label": " Használt memória ->",
+                "kind": "leaf",
+                "activate_keys": {"ENTER", "RIGHT"},
+                "action": "info_used_ram",
+                "auto_dispatch": True,
+                "screen": (" Használt RAM memória:", "    ... KB"),
+            },
+            {
                 "label": " Szabad memória ->",
                 "kind": "leaf",
                 "activate_keys": {"ENTER", "RIGHT"},
@@ -125,6 +133,14 @@ MENU_ROOT = [
                 "kind": "leaf",
                 "activate_keys": {"ENTER", "RIGHT"},
                 "screen": (" Hardwer felépítés:", "   ver.1.0 ✗"),
+            },
+            {
+                "label": " CircuitPython ver. ->",
+                "kind": "leaf",
+                "activate_keys": {"ENTER", "RIGHT"},
+                "action": "info_fw_version",
+                "auto_dispatch": True,
+                "screen": (" cPy firmware verzió:", " ..."),
             },
             {
                 "label": " Software verzió ->",

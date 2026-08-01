@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v72-ESC no-op"
+VERSION = "0v73" # add gc.mem_alloc + cPy fw to menu 
 
 
 def dprint(*args, **kwargs) -> None:
@@ -96,14 +96,14 @@ OHM_METER_REPL_INTERVAL = 2.0  # REPL-re csak 2 mp-enként írunk
 ROOT_BUMP_DURATION = 1.0
 
 # --- WELCOME SCREEN KONFIGURÁCIÓ ---
-WELCOME_TEXT = "FANOE tester"
+WELCOME_TEXT = f"FÁNOE tester - {VERSION}"
 WELCOME_BORDER = 8
 WELCOME_BORDER_COLOR = 0xAA5AFF
 WELCOME_BG_COLOR = 0x000080
 WELCOME_TEXT_COLOR = 0xFFFF00
 WELCOME_FADE_STEPS = (0, 96, 1024, 2048, 4096, 8192, 16384, 32768, 49152, 65535)
 WELCOME_STEP_DELAY = 0.06  # egyszeri, indításkori animáció - lásd megjegyzés lent
-WELCOME_HOLD_SECONDS = 0.5
+WELCOME_HOLD_SECONDS = 0.9
 
 # --- KEYPAD KONFIGURÁCIÓ ---
 ROW_PINS = (board.IO5, board.IO4)
@@ -554,9 +554,11 @@ class FanoeTesterApp:
             "restart_device": self._action_restart_device,
             "info_cpu_freq": self._action_info_cpu_freq,
             "info_cpu_temp": self._action_info_cpu_temp,
+            "info_used_ram": self._action_info_used_ram,
             "info_free_ram": self._action_info_free_ram,
             "info_board_id": self._action_info_board_id,
             "info_chip_uid": self._action_info_chip_uid,
+            "info_fw_version": self._action_info_fw_version,
             "info_sw_version": self._action_info_sw_version,
             "fanoe_manual_hold_enter": self._action_fanoe_manual_hold_enter,
             "ohm_meter_enter": self._action_ohm_meter_enter,
@@ -603,6 +605,12 @@ class FanoeTesterApp:
         self.display.show_pair(" ESP32-S3 CPU hőfok:", text, None)
         return True
 
+    def _action_info_used_ram(self):
+        used_kb = gc.mem_alloc() // 1024
+        dprint(f"Használt RAM: {used_kb} KB")
+        self.display.show_pair(" Használt RAM memória:", f"    {used_kb} KB", None)
+        return True
+
     def _action_info_free_ram(self):
         free_kb = gc.mem_free() // 1024
         dprint(f"Szabad RAM: {free_kb} KB")
@@ -621,6 +629,12 @@ class FanoeTesterApp:
         self.display.show_pair(" Chip UID:", "  " + uid_hex, None)
         return True
 
+    def _action_info_fw_version(self):
+        cpy_fw = os.uname().version
+        dprint(f"CircuitPython firmware verzió: {cpy_fw}")
+        self.display.show_pair(" cPy firmware verzió:", f"  {cpy_fw}", None)
+        return True
+    
     def _action_info_sw_version(self):
         dprint(f"Software verzio: {VERSION}")
         self.display.show_pair(" Software verzió:", f"   {VERSION}", None)
