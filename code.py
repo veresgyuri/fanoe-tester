@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v73" # add gc.mem_alloc + cPy fw to menu 
+VERSION = "0v74" # add flash used/free to info menu
 
 
 def dprint(*args, **kwargs) -> None:
@@ -556,6 +556,8 @@ class FanoeTesterApp:
             "info_cpu_temp": self._action_info_cpu_temp,
             "info_used_ram": self._action_info_used_ram,
             "info_free_ram": self._action_info_free_ram,
+            "info_used_flash": self._action_info_used_flash,
+            "info_free_flash": self._action_info_free_flash,
             "info_board_id": self._action_info_board_id,
             "info_chip_uid": self._action_info_chip_uid,
             "info_fw_version": self._action_info_fw_version,
@@ -615,6 +617,23 @@ class FanoeTesterApp:
         free_kb = gc.mem_free() // 1024
         dprint(f"Szabad RAM: {free_kb} KB")
         self.display.show_pair(" Szabad RAM memória:", f"    {free_kb} KB", None)
+        return True
+
+    def _action_info_used_flash(self):
+        fs_stat = os.statvfs('/')
+        block_size = fs_stat[0]
+        total_bytes = block_size * fs_stat[2]
+        free_bytes = block_size * fs_stat[3]
+        used_mb = (total_bytes - free_bytes) / (1024 * 1024)
+        dprint(f"Foglalt flash: {used_mb:.1f} MB")
+        self.display.show_pair(" Foglalt flash memória:", f"    {used_mb:.1f} MB", None)
+        return True
+
+    def _action_info_free_flash(self):
+        fs_stat = os.statvfs('/')
+        free_mb = (fs_stat[0] * fs_stat[3]) / (1024 * 1024)
+        dprint(f"Szabad flash: {free_mb:.1f} MB")
+        self.display.show_pair(" Szabad flash memória:", f"    {free_mb:.1f} MB", None)
         return True
 
     def _action_info_board_id(self):

@@ -113,6 +113,22 @@ MENU_ROOT = [
                 "screen": (" Szabad RAM memória:", "    ... KB"),
             },
             {
+                "label": " Foglalt tárhely ->",
+                "kind": "leaf",
+                "activate_keys": {"ENTER", "RIGHT"},
+                "action": "info_used_flash",
+                "auto_dispatch": True,
+                "screen": (" Foglalt flash memória:", "    ... MB"),
+            },
+            {
+                "label": " Szabad tárhely ->",
+                "kind": "leaf",
+                "activate_keys": {"ENTER", "RIGHT"},
+                "action": "info_free_flash",
+                "auto_dispatch": True,
+                "screen": (" Szabad flash memória:", "    ... MB"),
+            },
+            {
                 "label": " Alaplap azonosító ->",
                 "kind": "leaf",
                 "activate_keys": {"ENTER", "RIGHT"},
