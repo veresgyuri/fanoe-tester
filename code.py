@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v74" # add flash used/free to info menu
+VERSION = "0v75" # remove Színek állítása (color menu)
 
 
 def dprint(*args, **kwargs) -> None:

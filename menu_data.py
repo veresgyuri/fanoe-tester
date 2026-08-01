@@ -67,12 +67,6 @@ MENU_ROOT = [
                 "activate_keys": {"RIGHT"},
                 "screen": (" TFT fényerő ↑↓ ⏎", "   9 / 3 (kamu)"),
             },
-            {
-                "label": " Színek állítása ▶",
-                "kind": "leaf",
-                "activate_keys": {"RIGHT"},
-                "screen": (" TFT színvilág ↑↓ ⏎", "   1 / 5 (kamu)"),
-            },
         ],
     },
     {
