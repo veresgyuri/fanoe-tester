@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v7 - f-string"
+VERSION = "0v72-ESC no-op"
 
 
 def dprint(*args, **kwargs) -> None:
@@ -91,6 +91,9 @@ OHM_METER_MAX_OHMS = 500
 OHM_METER_SAMPLE_COUNT = 3  # egyszerű mozgóátlag a simításhoz
 OHM_METER_UPDATE_INTERVAL = 0.1  # 100ms - lásd ADC_SAMPLE_INTERVAL_MS a logic.md-ben
 OHM_METER_REPL_INTERVAL = 2.0  # REPL-re csak 2 mp-enként írunk
+
+# --- "Már a gyökérben vagyunk" villanás (LEFT/rövid ESC no-op-nál) ---
+ROOT_BUMP_DURATION = 1.0
 
 # --- WELCOME SCREEN KONFIGURÁCIÓ ---
 WELCOME_TEXT = "FANOE tester"
@@ -472,15 +475,19 @@ class MenuNavigator:
         return item
 
     def go_left(self):
+        """Visszaadja: True, ha történt tényleges lépés (screen bezárása
+        vagy egy szinttel feljebb lépés), False, ha már a gyökérszinten
+        voltunk és nem történt semmi (a hívó ilyenkor jelezhet a usernek)."""
         if self.in_leaf_screen:
             self.in_leaf_screen = False
             dprint("Kilepes screen nezetbol, vissza a bongeszeshez")
-            return
+            return True
         if len(self.nav_stack) > 1:
             self.nav_stack.pop()
             dprint("Egy szinttel feljebb")
-        else:
-            dprint("Mar a gyoker szinten vagyunk")
+            return True
+        dprint("Mar a gyoker szinten vagyunk")
+        return False
 
     def jump_to_root(self):
         self.in_leaf_screen = False
@@ -542,6 +549,7 @@ class FanoeTesterApp:
         self._ohm_meter_active = False  # True, amíg az "ELLENÁLLÁS MÉRÉS" leaf-en állunk
         self._ohm_meter_last_update = 0
         self._ohm_meter_last_repl = 0
+        self._root_bump_until = 0  # 0 = inaktív; monotonic timestamp, ameddig villog
         self._actions = {
             "restart_device": self._action_restart_device,
             "info_cpu_freq": self._action_info_cpu_freq,
@@ -676,6 +684,26 @@ class FanoeTesterApp:
         self._cleanup_manual_hold()
         self._cleanup_ohm_meter()
 
+    def _handle_go_left(self):
+        """LEFT vagy rövid ESC közös kezelése: ha volt tényleges lépés,
+        normál render; ha már a gyökérszinten voltunk (no-op), egy rövid
+        villanás jelzi ezt a usernek, majd magától visszavált."""
+        moved = self.navigator.go_left()
+        self._cleanup_active_modes()
+        if moved:
+            self._render()
+        else:
+            top_text, bottom_text = format_message("already_at_root")
+            self.display.set_line(
+                True, top_text, False,
+                bg_color=COLOR_BG_NORMAL, text_color=COLOR_BORDER_HIGHLIGHT,
+            )
+            self.display.set_line(
+                False, bottom_text, False,
+                bg_color=COLOR_BG_NORMAL, text_color=COLOR_BORDER_HIGHLIGHT,
+            )
+            self._root_bump_until = time.monotonic() + ROOT_BUMP_DURATION
+
     def run(self):
         dprint("FanoeTesterApp starting")
         self.display.show_welcome()
@@ -713,6 +741,10 @@ class FanoeTesterApp:
                     if now - self._ohm_meter_last_repl >= OHM_METER_REPL_INTERVAL:
                         dprint(f"Ohm-mero: {text}")
                         self._ohm_meter_last_repl = now
+
+            if self._root_bump_until and time.monotonic() >= self._root_bump_until:
+                self._root_bump_until = 0
+                self._render()
 
             if not event:
                 continue
@@ -754,9 +786,7 @@ class FanoeTesterApp:
                         else:
                             self._render()
                 elif key_name == "LEFT":
-                    self.navigator.go_left()
-                    self._cleanup_active_modes()
-                    self._render()
+                    self._handle_go_left()
                 elif key_name == "UP":
                     if not self.navigator.in_leaf_screen:
                         self.navigator.move_updown(-1)
@@ -777,10 +807,10 @@ class FanoeTesterApp:
                     dprint(f"ESC felengedve, nyomvatartas: {duration:.2f} s")
                     if self.keypad.is_long_press(duration):
                         self.navigator.jump_to_root()
+                        self._cleanup_active_modes()
+                        self._render()
                     else:
-                        self.navigator.go_left()
-                    self._cleanup_active_modes()
-                    self._render()
+                        self._handle_go_left()
 
 
 def main():

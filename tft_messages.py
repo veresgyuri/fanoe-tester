@@ -43,4 +43,7 @@ TFT_MESSAGES = {
     # --- Beállítás-mentés visszajelzése (settings.toml) ---
     "save_ok": "Sikeres mentés",
     "save_fail": "Sikertelen mentés",
+
+    # --- Navigáció: (LEFT/rövid ESC no-op) ---
+    "already_at_root": (" Már a főmenüben vagy", "      ⏎  ↑  ↓  ▶"),
 }
