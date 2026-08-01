@@ -1,8 +1,10 @@
 """boot.py - FANOE tester: USB-meghajtó és írási mód kapcsolása boot közben."""
-# ver 1.1 -- 2026.07.13.
-# Claude Sonnet 4.6 javaslata
-# ...hogy akkor is tudja a code.py írni a fájlrendszert (memóriát) amikor a REPL USB-n fut
 # ezt a filét boot.py névvel kell menteni a CIRCUITPY gyökérbe
+# ver 1.1 -- 2026.07.13. # Claude Sonnet 4.6 javaslata
+# ...hogy akkor is tudja a code.py írni a fájlrendszert (memóriát) amikor a REPL USB-n fut
+# ver 1.2 -- 2026.08.01.
+# - Hozzáadva: CPU órajel csökkentése (energiatakarékosság/hőmérséklet optimalizálás)
+# - Hozzáadva: USB meghajtó írási jogának hardveres (kapcsolós) vezérlése
 #
 # GPIO39 ----- kapcsoló ----- GND
 #
@@ -102,32 +104,52 @@
 # |                                                               |
 # +---------------------------------------------------------------+
 
+# ver 1.2 -- 2026.08.01 Gemini3 flash (működési freki/órajel fix beállítás a boot során
+
 import board
 import digitalio
 import storage
+import microcontroller
 
+print("\n--- BOOT.PY INDUL ---")
+
+# ==========================================
+# 1. CPU Órajel beállítása
+# ==========================================
+try:
+    # Órajel beállítása (240MHz helyett 160MHz)
+    microcontroller.cpu.frequency = 160000000
+    #  microcontroller.cpu.frequency = 80000000
+    
+    # Visszaolvassuk és átváltjuk MHz-re a kiíratáshoz
+    freq_mhz = microcontroller.cpu.frequency // 1000000
+    print(f"[OK] CPU órajel beállítva: {freq_mhz} MHz")
+except Exception as e:
+    print(f"[HIBA] Nem sikerült az órajelet módosítani! ({e})")
+
+# ==========================================
+# 2. USB / Fájlrendszer írási jogok beállítása
+# ==========================================
 # Válassz egy szabad GPIO lábat a kapcsolónak.
-# Bármelyik szabad, nem speciális funkciójú láb megteszi.
 SWITCH_PIN = board.IO39
 
 # A kiválasztott láb beállítása bemenetként, belső felhúzó ellenállással.
-# Így alapértelmezetten (ha nincs a GND-re kötve) HIGH szinten lesz.
 switch = digitalio.DigitalInOut(SWITCH_PIN)
 switch.direction = digitalio.Direction.INPUT
 switch.pull = digitalio.Pull.UP
 
 # A kapcsoló állapotának ellenőrzése.
-# A `switch.value` 'True', ha a láb HIGH, és 'False', ha LOW (GND-re húzott).
-# Tehát akkor tiltjuk le a meghajtót, ha a láb a földre van kötve.
 if not switch.value:
-    print("Felhasználói mód:")
-    print("- USB meghajtó letiltva")
-    print("- A fájl írása a programnak engedélyezve")
+    print("[MÓD] Felhasználói mód:")
+    print("      - USB meghajtó letiltva")
+    print("      - Fájlírás a code.py számára ENGEDÉLYEZVE")
     storage.disable_usb_drive()
 else:
-    print("Fejlesztői mód: USB meghajtó engedélyezve.")
-    print("Ebben a módban a programból nem engedélyezett a fájl írás.")
-    # Itt nem kell semmit csinálni, az engedélyezés az alapértelmezett.
+    print("[MÓD] Fejlesztői mód:")
+    print("      - USB meghajtó engedélyezve")
+    print("      - Fájlírás a code.py számára TILTVA")
 
-# A láb felszabadítása `code.py` számára, ha kell (pl. JTAG TCK részére)
+# A láb felszabadítása `code.py` számára
 switch.deinit()
+
+print("--- BOOT.PY BEFEJEZŐDÖTT ---\n")
