@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v81" # .deinit() after user ABORTED cycle
+VERSION = "0v82" # t_ki mérés, csak ha volt t_be
 
 
 def dprint(*args, **kwargs) -> None:
@@ -644,7 +644,8 @@ class FanoeMeasurementCycle:
                 dprint("FanoeMeasurementCycle: T_UTO, IO7 OFF")
 
         elif self.state == self.STATE_T_UTO:
-            if self.fanoe_ki_time is None and not self.contact_closed:
+            #if self.fanoe_ki_time is None and not self.contact_closed:
+            if self.fanoe_ki_time is None and self.fanoe_be_time is not None and not self.contact_closed:
                 self.fanoe_ki_time = now
                 dprint(f"FanoeMeasurementCycle: fanoe_ki @ {now - self._cycle_start:.3f}s")
             if now >= self._cycle_end:
@@ -999,13 +1000,13 @@ class FanoeTesterApp:
         a felső sor, ms-visszaszámlálással az alsó - a LED ugyanazt a
         színt mutatja."""
         if state == FanoeMeasurementCycle.STATE_T_ELO:
-            label_text, color = "FÁVA holtidő fut", COLOR_TEXT_SUCCESS
+            label_text, color = " FÁVA holtidő fut", COLOR_TEXT_SUCCESS
             self.led.set_green()
         elif state == FanoeMeasurementCycle.STATE_T_BENT:
             label_text, color = " BE parancs kiadva", COLOR_TEXT_DANGER
             self.led.set_red()
         elif state == FanoeMeasurementCycle.STATE_T_UTO:
-            label_text, color = "Mérési utóidő fut", COLOR_TEXT_WARNING
+            label_text, color = " Mérési utóidő fut", COLOR_TEXT_WARNING
             self.led.set_yellow()
         else:
             return
