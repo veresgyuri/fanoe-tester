@@ -33,6 +33,11 @@ TFT_MESSAGES = {
     "err_no_dropout": ("HIBA: FANOE nem", "engedett el idoben"),
     "err_fanoe_szakadt": ("HIBA: ellenallas", "szakadt (vegtelen)"),
 
+    # --- Egysoros hibajelzés a RESULT lapozható listájában (NEM állítja
+    #     meg a ciklust, csak extra sor a lista elején, ha volt hiba) ---
+    "result_err_no_pullin": "HIBA: nem huzott be",
+    "result_err_no_dropout": "HIBA: nem engedett el",
+
     # --- Megszakítás (ESC aktív állapotban) ---
     "aborted_by_user": ("Mérés megszakítva", ""),
 

@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v75" # remove Színek állítása (color menu)
+VERSION = "0v8" # add measurement cycle
 
 
 def dprint(*args, **kwargs) -> None:
@@ -34,7 +34,19 @@ def dprint(*args, **kwargs) -> None:
         print(*args, **kwargs)
 
 
-def format_message(key, **kwargs):
+def get_int_setting(key, default):
+    """settings.toml-ból int érték beolvasása os.getenv()-en keresztül.
+    Az os.getenv() MINDIG stringet ad vissza (vagy None-t, ha a kulcs
+    hiányzik) - ezért explicit int() konverzió kell. Hiányzó/hibás kulcs
+    esetén a default-ra esik vissza."""
+    raw = os.getenv(key)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        dprint(f"settings.toml: {key} erteke ervenytelen ('{raw}'), default={default}")
+        return default
     """TFT_MESSAGES kulcs feloldása és .format()-olása. Egysoros sablonnál
     (str) egy stringet ad vissza, kétsoros bejegyzésnél (tuple) egy
     (sor1, sor2) tuple-t - mindkettőt a hívó formázza a saját kwargs-aival."""
@@ -43,6 +55,14 @@ def format_message(key, **kwargs):
         return tuple(line.format(**kwargs) for line in template)
     return template.format(**kwargs)
 
+def format_message(key, **kwargs):
+    """TFT_MESSAGES kulcs feloldása és .format()-olása. Egysoros sablonnál
+    (str) egy stringet ad vissza, kétsoros bejegyzésnél (tuple) egy
+    (sor1, sor2) tuple-t - mindkettőt a hívó formázza a saját kwargs-aival."""
+    template = TFT_MESSAGES[key]
+    if isinstance(template, tuple):
+        return tuple(line.format(**kwargs) for line in template)
+    return template.format(**kwargs)    
 
 # --- DISPLAY KONFIGURÁCIÓ ---
 DISPLAY_WIDTH = 284
@@ -61,7 +81,6 @@ TFT_RST_PIN = board.IO11
 BACKLIGHT_PIN = board.IO8
 BACKLIGHT_FREQUENCY = 1000
 BACKLIGHT_ACTIVE_LOW = True
-BACKLIGHT_DUTY_CYCLE = 32768
 
 FONT_PATH = "/fonts/hu_127_ekezetes_20.pcf"
 LINE1_Y = 0
@@ -71,17 +90,19 @@ COLOR_BG_NORMAL = 0x000000
 COLOR_TEXT_NORMAL = 0xFFFFFF
 COLOR_TEXT_DANGER = 0xFF0000
 COLOR_TEXT_WARNING = 0xFFFF00
+COLOR_TEXT_SUCCESS = 0x00FF00
 COLOR_BG_HIGHLIGHT = 0xFFCC00
 COLOR_TEXT_HIGHLIGHT = 0x000000
 COLOR_BORDER_HIGHLIGHT = 0x0033FF
 BORDER_THICKNESS = 3
 
-# --- FÁNOE RELÉ ÉS STÁTUSZ LED (Kézi BE / Ohm-mérő módhoz) ---
+# --- FÁNOE RELÉ ÉS STÁTUSZ LED (Kézi BE / Ohm-mérő / Mérési ciklus módhoz) ---
 RELAY_PIN = board.IO7
 STATUS_LED_PIN = board.IO48  # WS2812 - MINDIG board.IO48 explicit, nem board.NEOPIXEL
 STATUS_LED_GREEN = (0, 40, 0)
 STATUS_LED_RED = (40, 0, 0)
 STATUS_LED_ORANGE = (40, 16, 0)
+STATUS_LED_YELLOW = (40, 40, 0)
 MANUAL_HOLD_UPDATE_INTERVAL = 0.05  # ms-szamlalo frissitesi gyakorisaga
 
 # --- OHM-MÉRŐ MÓD (folyamatos ellenállásmérés, IO14) ---
@@ -91,6 +112,20 @@ OHM_METER_MAX_OHMS = 500
 OHM_METER_SAMPLE_COUNT = 3  # egyszerű mozgóátlag a simításhoz
 OHM_METER_UPDATE_INTERVAL = 0.1  # 100ms - lásd ADC_SAMPLE_INTERVAL_MS a logic.md-ben
 OHM_METER_REPL_INTERVAL = 2.0  # REPL-re csak 2 mp-enként írunk
+
+# --- AUTOMATIKUS MÉRÉSI CIKLUS (FanoeMeasurementCycle, lásd fanoe_tester_logic.md) ---
+FANOE_CONTACT_PIN = board.IO6  # NO kontakt, feltételezett Pull.UP (zárva=LOW) - ellenőrizd!
+T_SETTLE_S = 0.150  # fanoe_be utáni beállási idő, mielőtt fanoe_ell stabilitást figyelünk
+OHM_TOLERANCE_OHM = 3  # "stabil" fanoe_ell tűrése 3 egymást követő minta között
+ADC_SAMPLE_INTERVAL_S = 0.1  # ellenállás-mintavételezés periódusa a ciklus alatt
+CYCLE_PROGRESS_UPDATE_INTERVAL = 0.05  # TFT ms-visszaszámláló frissítési gyakorisága
+
+# --- settings.toml alapértékek (ha a fájl hiányzik/hibás, ezekre esünk vissza) ---
+DEFAULT_T_ELO_MS = 2000
+DEFAULT_T_BENT_MS = 4000
+DEFAULT_T_UTO_MS = 8000
+DEFAULT_R_ELL_OHM = 100
+DEFAULT_BACKLIGHT_DUTY = 2048
 
 # --- "Már a gyökérben vagyunk" villanás (LEFT/rövid ESC no-op-nál) ---
 ROOT_BUMP_DURATION = 1.0
@@ -167,6 +202,11 @@ class Display:
         self._backlight.duty_cycle = (
             (65535 - clamped) if BACKLIGHT_ACTIVE_LOW else clamped
         )
+
+    def set_operating_backlight(self, logical_duty):
+        """A show_welcome() utáni, tartós üzemi fényerő beállítására -
+        a settings.toml BACKLIGHT_DUTY értékéből hívja a FanoeTesterApp."""
+        self._set_backlight(logical_duty)
 
     def _init_display(self):
         dprint("Initializing TFT display (invert=False)")
@@ -332,9 +372,9 @@ class RelayControl:
 
 
 class StatusLed:
-    """WS2812 LED (board.IO48) - csak a Kézi BE mód állapotjelzésére.
-    start()/stop() között foglalja/engedi el a pint, hogy más funkció is
-    használhassa máskor, ha kell."""
+    """WS2812 LED (board.IO48) - a Kézi BE, Ohm-mérő és a mérési ciklus
+    állapotjelzésére. start()/stop() között foglalja/engedi el a pint, hogy
+    más funkció is használhassa máskor, ha kell."""
 
     def __init__(self, pin):
         self._pin = pin
@@ -355,6 +395,10 @@ class StatusLed:
     def set_orange(self):
         if self._pixel is not None:
             self._pixel[0] = STATUS_LED_ORANGE
+
+    def set_yellow(self):
+        if self._pixel is not None:
+            self._pixel[0] = STATUS_LED_YELLOW
 
     def stop(self):
         if self._pixel is not None:
@@ -400,6 +444,214 @@ class OhmMeter:
         if len(self._samples) > self._sample_count:
             self._samples.pop(0)
         return sum(self._samples) / len(self._samples)
+
+
+class FanoeMeasurementCycle:
+    """Automatikus FÁNOE BE/KI mérési ciklus állapotgépe - lásd
+    fanoe_tester_logic.md 'Automatikus mérési ciklus' szakasza. Nem tud
+    semmit a kijelzőről/keypadről - csak IO7/IO6/IO14-et vezérel/olvas,
+    és update()-tel léptethető. A hívó (FanoeTesterApp) felelős a
+    non-blocking időzítésért (minden run() körben update()-et hív) és a
+    renderelésért."""
+
+    STATE_IDLE = "IDLE"
+    STATE_T_ELO = "T_ELO"
+    STATE_T_BENT = "T_BENT"
+    STATE_T_UTO = "T_UTO"
+    STATE_RESULT = "RESULT"
+    STATE_ABORTED = "ABORTED"
+
+    def __init__(self, relay, contact_pin, adc_pin, ref_ohms,
+                 t_elo_ms, t_bent_ms, t_uto_ms, r_ell_ohm):
+        self._relay = relay
+        self._contact_pin = contact_pin
+        self._adc_pin = adc_pin
+        self._ref_ohms = ref_ohms
+        self.t_elo_ms = t_elo_ms
+        self.t_bent_ms = t_bent_ms
+        self.t_uto_ms = t_uto_ms
+        self.r_ell_ohm = r_ell_ohm
+
+        self._contact = None
+        self._adc = None
+        self.state = self.STATE_IDLE
+        self._reset_results()
+
+    def _reset_results(self):
+        self._cycle_start = None
+        self._t_elo_end = None
+        self._t_bent_end = None
+        self._cycle_end = None
+        self._last_adc_sample_time = 0
+        self._ohm_samples = []
+        self._r_ell_was_above = False
+
+        self.fanoe_be_time = None
+        self.fanoe_ki_time = None
+        self.r_be_time = None
+        self.r_ki_time = None
+        self.fanoe_ell = None
+        self.fanoe_ell_locked = False
+        self.fanoe_szakadt = False
+        self.error_no_pullin = False
+        self.error_no_dropout = False
+
+        # EVALUATE eredménye, ms-ben/Ohm-ban, None ha nincs adat
+        self.t_be_ms = None
+        self.t_ki_ms = None
+        self.r_be_ms = None
+        self.r_ki_ms = None
+
+    def start(self):
+        """Ciklus indítása: pin-ek foglalása, T_ELO állapotba lépés."""
+        self._contact = digitalio.DigitalInOut(self._contact_pin)
+        self._contact.direction = digitalio.Direction.INPUT
+        self._contact.pull = digitalio.Pull.UP  # zárva (behúzva) = LOW
+
+        self._adc = analogio.AnalogIn(self._adc_pin)
+
+        self._reset_results()
+        now = time.monotonic()
+        self._cycle_start = now
+        self._t_elo_end = now + self.t_elo_ms / 1000
+        self._relay.off()
+        self.state = self.STATE_T_ELO
+        dprint("FanoeMeasurementCycle: start -> T_ELO")
+
+    def abort(self):
+        """Azonnali, feltétel nélküli megszakítás - IO7 OFF, nincs EVALUATE."""
+        self._relay.off()
+        self.state = self.STATE_ABORTED
+        dprint("FanoeMeasurementCycle: ABORTED (felhasznalo)")
+
+    def stop(self):
+        """Erőforrások elengedése (IO6/IO14 deinit). A leaf elhagyásakor,
+        vagy a RESULT állapotba éréskor hívandó."""
+        self._relay.off()
+        if self._contact is not None:
+            self._contact.deinit()
+            self._contact = None
+        if self._adc is not None:
+            self._adc.deinit()
+            self._adc = None
+        self.state = self.STATE_IDLE
+
+    @property
+    def contact_closed(self):
+        return not self._contact.value  # Pull.UP: zárva = LOW
+
+    def remaining_ms(self):
+        """Hátralévő idő az aktuális fázisban, ms-ben (0, ha nem aktív fázis)."""
+        now = time.monotonic()
+        if self.state == self.STATE_T_ELO:
+            end = self._t_elo_end
+        elif self.state == self.STATE_T_BENT:
+            end = self._t_bent_end
+        elif self.state == self.STATE_T_UTO:
+            end = self._cycle_end
+        else:
+            return 0
+        return max(0, int((end - now) * 1000))
+
+    def _read_ohms(self):
+        """Egy nyers Ohm-mintát ad vissza, vagy None-t szakadt kör esetén."""
+        v_ref = self._adc.reference_voltage
+        v_adc = (self._adc.value / 65535) * v_ref
+        if v_ref - v_adc < 0.01:
+            return None
+        return self._ref_ohms * v_adc / (v_ref - v_adc)
+
+    def _sample_ohms(self, now):
+        ohms = self._read_ohms()
+
+        if ohms is None:
+            self.fanoe_szakadt = True
+            self._ohm_samples = []
+            return
+
+        # fanoe_ell zárolás: T_SETTLE_S a fanoe_be_time után, 3 stabil minta
+        if (not self.fanoe_ell_locked and self.fanoe_be_time is not None
+                and now - self.fanoe_be_time >= T_SETTLE_S):
+            self._ohm_samples.append(ohms)
+            if len(self._ohm_samples) > 3:
+                self._ohm_samples.pop(0)
+            if len(self._ohm_samples) == 3:
+                if max(self._ohm_samples) - min(self._ohm_samples) <= OHM_TOLERANCE_OHM:
+                    self.fanoe_ell = self._ohm_samples[-1]
+                    self.fanoe_ell_locked = True
+                    dprint(f"FanoeMeasurementCycle: fanoe_ell zarolva = {self.fanoe_ell:.1f} Ohm")
+
+        # r_be/r_ki küszöb-figyelés, a fanoe_ell zárolástól FÜGGETLENÜL
+        above = ohms >= self.r_ell_ohm
+        if above and not self._r_ell_was_above and self.r_be_time is None:
+            self.r_be_time = now
+            dprint(f"FanoeMeasurementCycle: r_be @ {now - self._cycle_start:.3f}s")
+        if (not above) and self._r_ell_was_above:
+            self.r_ki_time = now
+            dprint(f"FanoeMeasurementCycle: r_ki @ {now - self._cycle_start:.3f}s")
+        self._r_ell_was_above = above
+
+    def _evaluate(self):
+        if self.fanoe_be_time is not None:
+            self.t_be_ms = int((self.fanoe_be_time - self._t_elo_end) * 1000)
+        if self.fanoe_ki_time is not None:
+            self.t_ki_ms = int((self.fanoe_ki_time - self._t_bent_end) * 1000)
+        if self.r_be_time is not None:
+            self.r_be_ms = int((self.r_be_time - self._t_elo_end) * 1000)
+        if self.r_ki_time is not None:
+            self.r_ki_ms = int((self.r_ki_time - self._t_bent_end) * 1000)
+        dprint(
+            f"FanoeMeasurementCycle: EVALUATE t_be={self.t_be_ms} "
+            f"t_ki={self.t_ki_ms} fanoe_ell={self.fanoe_ell} "
+            f"r_be={self.r_be_ms} r_ki={self.r_ki_ms} "
+            f"err_no_pullin={self.error_no_pullin} err_no_dropout={self.error_no_dropout} "
+            f"szakadt={self.fanoe_szakadt}"
+        )
+
+    def update(self):
+        """Nem blokkoló léptetés - minden run() körben hívandó, amíg a
+        state nem IDLE/RESULT/ABORTED."""
+        if self.state in (self.STATE_IDLE, self.STATE_RESULT, self.STATE_ABORTED):
+            return
+
+        now = time.monotonic()
+
+        if self.state in (self.STATE_T_BENT, self.STATE_T_UTO):
+            if now - self._last_adc_sample_time >= ADC_SAMPLE_INTERVAL_S:
+                self._last_adc_sample_time = now
+                self._sample_ohms(now)
+
+        if self.state == self.STATE_T_ELO:
+            if now >= self._t_elo_end:
+                self.state = self.STATE_T_BENT
+                self._relay.on()
+                self._t_bent_end = now + self.t_bent_ms / 1000
+                self._last_adc_sample_time = now
+                dprint("FanoeMeasurementCycle: T_BENT, IO7 ON")
+
+        elif self.state == self.STATE_T_BENT:
+            if self.fanoe_be_time is None and self.contact_closed:
+                self.fanoe_be_time = now
+                dprint(f"FanoeMeasurementCycle: fanoe_be @ {now - self._cycle_start:.3f}s")
+            if now >= self._t_bent_end:
+                if self.fanoe_be_time is None:
+                    self.error_no_pullin = True
+                    dprint("FanoeMeasurementCycle: ERROR_NO_PULLIN")
+                self.state = self.STATE_T_UTO
+                self._relay.off()
+                self._cycle_end = now + self.t_uto_ms / 1000
+                dprint("FanoeMeasurementCycle: T_UTO, IO7 OFF")
+
+        elif self.state == self.STATE_T_UTO:
+            if self.fanoe_ki_time is None and not self.contact_closed:
+                self.fanoe_ki_time = now
+                dprint(f"FanoeMeasurementCycle: fanoe_ki @ {now - self._cycle_start:.3f}s")
+            if now >= self._cycle_end:
+                if self.fanoe_ki_time is None:
+                    self.error_no_dropout = True
+                    dprint("FanoeMeasurementCycle: ERROR_NO_DROPOUT")
+                self._evaluate()
+                self.state = self.STATE_RESULT
 
 
 class MenuNavigator:
@@ -536,12 +788,27 @@ class FanoeTesterApp:
     és a MenuNavigator-t, futtatja a nem blokkoló főciklust."""
 
     def __init__(self):
+        self._t_elo_ms = get_int_setting("T_ELO_MS", DEFAULT_T_ELO_MS)
+        self._t_bent_ms = get_int_setting("T_BENT_MS", DEFAULT_T_BENT_MS)
+        self._t_uto_ms = get_int_setting("T_UTO_MS", DEFAULT_T_UTO_MS)
+        self._r_ell_ohm = get_int_setting("R_ELL_OHM", DEFAULT_R_ELL_OHM)
+        self._backlight_duty = get_int_setting("BACKLIGHT_DUTY", DEFAULT_BACKLIGHT_DUTY)
+        dprint(
+            f"settings.toml: t_elo={self._t_elo_ms}ms t_bent={self._t_bent_ms}ms "
+            f"t_uto={self._t_uto_ms}ms r_ell={self._r_ell_ohm}Ohm "
+            f"backlight={self._backlight_duty}"
+        )
+
         self.display = Display()
         self.keypad = Keypad(ROW_PINS, COLUMN_PINS, KEY_NAMES, LONG_PRESS_SEC)
         self.navigator = MenuNavigator(MENU_ROOT)
         self.relay = RelayControl(RELAY_PIN)
         self.led = StatusLed(STATUS_LED_PIN)
         self.ohm_meter = OhmMeter(OHM_METER_PIN, OHM_METER_REF_OHMS, OHM_METER_SAMPLE_COUNT)
+        self.measurement_cycle = FanoeMeasurementCycle(
+            self.relay, FANOE_CONTACT_PIN, OHM_METER_PIN, OHM_METER_REF_OHMS,
+            self._t_elo_ms, self._t_bent_ms, self._t_uto_ms, self._r_ell_ohm,
+        )
         self._manual_hold_active = False  # True, amíg a "FÁNOE KÉZI BE" leaf-en állunk
         self._manual_hold_pressed = False  # True, amíg ENTER lenyomva tartva
         self._manual_hold_start = None
@@ -549,6 +816,9 @@ class FanoeTesterApp:
         self._ohm_meter_active = False  # True, amíg az "ELLENÁLLÁS MÉRÉS" leaf-en állunk
         self._ohm_meter_last_update = 0
         self._ohm_meter_last_repl = 0
+        self._cycle_active = False  # True, amíg a mérési ciklus fut (T_ELO/T_BENT/T_UTO)
+        self._cycle_last_update = 0
+        self._suppress_next_esc_release = False  # ciklus-megszakítás utáni ESC-felengedés elnyelése
         self._root_bump_until = 0  # 0 = inaktív; monotonic timestamp, ameddig villog
         self._actions = {
             "restart_device": self._action_restart_device,
@@ -564,6 +834,7 @@ class FanoeTesterApp:
             "info_sw_version": self._action_info_sw_version,
             "fanoe_manual_hold_enter": self._action_fanoe_manual_hold_enter,
             "ohm_meter_enter": self._action_ohm_meter_enter,
+            "start_measurement_cycle": self._action_start_measurement_cycle,
         }
 
     def _render(self):
@@ -711,11 +982,106 @@ class FanoeTesterApp:
         self.led.stop()
         dprint("Ohm-mero mod elhagyva - ADC/LED torolve")
 
+    def _action_start_measurement_cycle(self):
+        """A 'FÁNOE BE/KI MÉRÉS' leaf-en belüli megerősítő ENTER-re fut le
+        (confirm_keys minta) - elindítja a FanoeMeasurementCycle-t."""
+        self.measurement_cycle.start()
+        self._cycle_active = True
+        self._cycle_last_update = time.monotonic()
+        self.led.start()
+        self._render_cycle_progress(self.measurement_cycle.state)
+        dprint("Meresi ciklus inditva")
+        return True
+
+    def _render_cycle_progress(self, state):
+        """A T_ELO/T_BENT/T_UTO fázisok élő kijelzése: fázisnévvel/színnel
+        a felső sor, ms-visszaszámlálással az alsó - a LED ugyanazt a
+        színt mutatja."""
+        if state == FanoeMeasurementCycle.STATE_T_ELO:
+            label_text, color = "FÁVA holtidő fut", COLOR_TEXT_SUCCESS
+            self.led.set_green()
+        elif state == FanoeMeasurementCycle.STATE_T_BENT:
+            label_text, color = " BE parancs kiadva", COLOR_TEXT_DANGER
+            self.led.set_red()
+        elif state == FanoeMeasurementCycle.STATE_T_UTO:
+            label_text, color = "Mérési utóidő fut", COLOR_TEXT_WARNING
+            self.led.set_yellow()
+        else:
+            return
+
+        remaining_ms = self.measurement_cycle.remaining_ms()
+        self.display.set_line(True, label_text, False, bg_color=COLOR_BG_NORMAL, text_color=color)
+        self.display.set_line(
+            False, f"     {remaining_ms} ms", False,
+            bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_NORMAL,
+        )
+
+    def _finish_measurement_cycle(self):
+        """A ciklus RESULT állapotba érésekor fut le: összeállítja a
+        lapozható eredmény-listát, elengedi az ADC/kontakt/LED-et, és a
+        MenuNavigator-on keresztül megjeleníti (ugyanaz a csúszóablakos
+        renderelés, mint a menü böngészésnél)."""
+        cyc = self.measurement_cycle
+        lines = []
+
+        if cyc.error_no_pullin:
+            lines.append(format_message("result_err_no_pullin"))
+        if cyc.error_no_dropout:
+            lines.append(format_message("result_err_no_dropout"))
+
+        t_be_val = str(cyc.t_be_ms) if cyc.t_be_ms is not None else format_message("value_na")
+        lines.append(format_message("result_t_be", value=t_be_val))
+
+        t_ki_val = str(cyc.t_ki_ms) if cyc.t_ki_ms is not None else format_message("value_na")
+        lines.append(format_message("result_t_ki", value=t_ki_val))
+
+        if cyc.fanoe_szakadt:
+            ell_val = format_message("value_szakadt")
+        elif cyc.fanoe_ell is not None:
+            ell_val = f"{cyc.fanoe_ell:.1f}"
+        else:
+            ell_val = format_message("value_na")
+        lines.append(format_message("result_fanoe_ell", value=ell_val))
+
+        r_be_val = str(cyc.r_be_ms) if cyc.r_be_ms is not None else format_message("value_na")
+        lines.append(format_message("result_r_be", value=r_be_val))
+
+        r_ki_val = str(cyc.r_ki_ms) if cyc.r_ki_ms is not None else format_message("value_na")
+        lines.append(format_message("result_r_ki", value=r_ki_val))
+
+        self._cycle_active = False
+        self.led.stop()
+        cyc.stop()
+        self.navigator.push_result_list(lines)
+        self._render()
+        dprint("Meresi ciklus kesz - RESULT lista megjelenitve")
+
+    def _abort_measurement_cycle(self):
+        """ESC bármikor, az aktív fázisok alatt - AZONNALI megszakítás."""
+        self.measurement_cycle.abort()
+        self._cycle_active = False
+        self.led.stop()
+        top_text, bottom_text = format_message("aborted_by_user")
+        self.display.show_pair(top_text, bottom_text, None)
+        self._suppress_next_esc_release = True
+        dprint("Meresi ciklus megszakitva (ESC)")
+
+    def _cleanup_measurement_cycle(self):
+        """Védőháló: ha a ciklus valamiért aktívan maradna, amikor a
+        _cleanup_active_modes lefut, biztonságosan leállítja."""
+        if not self._cycle_active:
+            return
+        self._cycle_active = False
+        self.measurement_cycle.stop()
+        self.led.stop()
+        dprint("Meresi ciklus vedohalo-takaritas lefutott")
+
     def _cleanup_active_modes(self):
         """Minden folyamatos/speciális almenü-mód takarítása egy helyen -
-        bővíthető, ha később újabb ilyen mód (pl. mérési ciklus) készül."""
+        bővíthető, ha később újabb ilyen mód készül."""
         self._cleanup_manual_hold()
         self._cleanup_ohm_meter()
+        self._cleanup_measurement_cycle()
 
     def _handle_go_left(self):
         """LEFT vagy rövid ESC közös kezelése: ha volt tényleges lépés,
@@ -740,6 +1106,7 @@ class FanoeTesterApp:
     def run(self):
         dprint("FanoeTesterApp starting")
         self.display.show_welcome()
+        self.display.set_operating_backlight(self._backlight_duty)
         self._render()
 
         while True:
@@ -775,6 +1142,16 @@ class FanoeTesterApp:
                         dprint(f"Ohm-mero: {text}")
                         self._ohm_meter_last_repl = now
 
+            if self._cycle_active:
+                self.measurement_cycle.update()
+                if self.measurement_cycle.state == FanoeMeasurementCycle.STATE_RESULT:
+                    self._finish_measurement_cycle()
+                else:
+                    now = time.monotonic()
+                    if now - self._cycle_last_update >= CYCLE_PROGRESS_UPDATE_INTERVAL:
+                        self._render_cycle_progress(self.measurement_cycle.state)
+                        self._cycle_last_update = now
+
             if self._root_bump_until and time.monotonic() >= self._root_bump_until:
                 self._root_bump_until = 0
                 self._render()
@@ -786,6 +1163,13 @@ class FanoeTesterApp:
 
             if phase == "pressed":
                 dprint(f"Lenyomva: {key_name}")
+
+                if self._cycle_active:
+                    if key_name == "ESC":
+                        self._abort_measurement_cycle()
+                    else:
+                        dprint(f"{key_name} hatastalan - meresi ciklus aktiv")
+                    continue
 
                 if self._manual_hold_active and key_name == "ENTER":
                     self._manual_hold_pressed = True
@@ -808,8 +1192,11 @@ class FanoeTesterApp:
                     if self.navigator.in_leaf_screen:
                         confirmed_item = self.navigator.confirm_action(key_name)
                         if confirmed_item is not None:
-                            self._dispatch_action(confirmed_item)
-                        self._render()
+                            rendered_custom = self._dispatch_action(confirmed_item)
+                            if not rendered_custom:
+                                self._render()
+                        else:
+                            self._render()
                     else:
                         activated_item = self.navigator.try_activate(key_name)
                         if activated_item is not None and activated_item.get("auto_dispatch"):
@@ -837,13 +1224,17 @@ class FanoeTesterApp:
                     dprint("IO7 parancs vege (elengedve)")
                     self._render()
                 elif key_name == "ESC":
-                    dprint(f"ESC felengedve, nyomvatartas: {duration:.2f} s")
-                    if self.keypad.is_long_press(duration):
-                        self.navigator.jump_to_root()
-                        self._cleanup_active_modes()
-                        self._render()
+                    if self._suppress_next_esc_release:
+                        self._suppress_next_esc_release = False
+                        dprint("ESC felengedve - meresi ciklus megszakitas utan, elnyelve")
                     else:
-                        self._handle_go_left()
+                        dprint(f"ESC felengedve, nyomvatartas: {duration:.2f} s")
+                        if self.keypad.is_long_press(duration):
+                            self.navigator.jump_to_root()
+                            self._cleanup_active_modes()
+                            self._render()
+                        else:
+                            self._handle_go_left()
 
 
 def main():

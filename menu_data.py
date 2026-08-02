@@ -30,6 +30,8 @@ MENU_ROOT = [
         "label": " FÁNOE BE/KI MÉRÉS ▶",
         "kind": "leaf",
         "activate_keys": {"RIGHT"},
+        "action": "start_measurement_cycle",
+        "confirm_keys": {"ENTER"},
         "screen": ("t_elo,t_bent,t_uto", " Ciklus indítása ⏎"),
     },
     {
