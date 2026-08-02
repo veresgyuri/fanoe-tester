@@ -47,13 +47,6 @@ def get_int_setting(key, default):
     except (ValueError, TypeError):
         dprint(f"settings.toml: {key} erteke ervenytelen ('{raw}'), default={default}")
         return default
-    """TFT_MESSAGES kulcs feloldása és .format()-olása. Egysoros sablonnál
-    (str) egy stringet ad vissza, kétsoros bejegyzésnél (tuple) egy
-    (sor1, sor2) tuple-t - mindkettőt a hívó formázza a saját kwargs-aival."""
-    template = TFT_MESSAGES[key]
-    if isinstance(template, tuple):
-        return tuple(line.format(**kwargs) for line in template)
-    return template.format(**kwargs)
 
 def format_message(key, **kwargs):
     """TFT_MESSAGES kulcs feloldása és .format()-olása. Egysoros sablonnál
