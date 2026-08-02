@@ -9,9 +9,9 @@
 # a code.py-ban eddig hardcode-olt alapértékekkel.
 
 # --- Mérési ciklus időzítése (FanoeMeasurementCycle) [ms] ---
-T_ELO_MS = 1500  # beállítható: 0-3000 ms - step: 100 ms
-T_BENT_MS = 3000  # beállítható: 500-7000 ms - step: 100 ms
-T_UTO_MS = 1000  # beállítható: 500-5000 ms - step: 100 ms
+T_ELO_MS = 2000  # beállítható: 0-3000 ms - step: 100 ms
+T_BENT_MS = 6000  # beállítható: 500-7000 ms - step: 100 ms
+T_UTO_MS = 5000  # beállítható: 500-5000 ms - step: 100 ms
 
 # --- Ellenállás éldetektálási küszöb (r_be/r_ki-hez) [Ohm] ---
 R_ELL_OHM = 70  # beállítható: 70-150 Ω  - step: 10 Ω
