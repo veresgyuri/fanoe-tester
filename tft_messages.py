@@ -18,32 +18,32 @@
 TFT_MESSAGES = {
 
     # --- RESULT lista elemei (egysoros sablonok) ---
-    "result_t_be": "Kontakt BE: {value} ms",
-    "result_t_ki": "Kontakt KI: {value} ms",
-    "result_fanoe_ell": "Ellenállás: {value} Ω",
-    "result_r_be": "Küszöb BE: {value} ms",
-    "result_r_ki": "Küszöb KI: {value} ms",
+    "result_t_be": " Kontakt BE: {value} ms",
+    "result_t_ki": " Kontakt KI: {value} ms",
+    "result_fanoe_ell": " Ellenállás: {value} Ω",
+    "result_r_be": " Ω küszöb BE: {value} ms",
+    "result_r_ki": " Ω küszöb KI: {value} ms",
 
     # --- Hiányzó / speciális értékek a fenti sablonokba behelyettesítve ---
-    "value_na": "N/A",
-    "value_szakadt": "szakadt",
+    "value_na": " N/A",
+    "value_szakadt": " szakadt",
 
     # --- Hibaüzenetek (kétsoros, önálló megállító képernyők) ---
-    "err_no_pullin": ("HIBA: FANOE nem", "huzott be idoben"),
-    "err_no_dropout": ("HIBA: FANOE nem", "engedett el idoben"),
-    "err_fanoe_szakadt": ("HIBA: ellenallas", "szakadt (vegtelen)"),
+    "err_no_pullin": (" HIBA: FÁNOE nem", " húzott be időben"),
+    "err_no_dropout": (" HIBA: FÁNOE nem", " ejtett el időben"),
+    "err_fanoe_szakadt": (" HIBA: ellenállás", " szakadt (> 500 Ω)"),
 
     # --- Egysoros hibajelzés a RESULT lapozható listájában (NEM állítja
     #     meg a ciklust, csak extra sor a lista elején, ha volt hiba) ---
-    "result_err_no_pullin": "HIBA: nem huzott be",
-    "result_err_no_dropout": "HIBA: nem engedett el",
+    "result_err_no_pullin": " HIBA: nem húzott be",
+    "result_err_no_dropout": " HIBA: nem ejtett el",
 
     # --- Megszakítás (ESC aktív állapotban) ---
-    "aborted_by_user": ("Mérés megszakítva", ""),
+    "aborted_by_user": (" A mérés megszakítva", " visszalépés ▶"),
 
     # --- Ohm-mérő mód (folyamatosan frissülő, IO14) ---
-    "ohm_meter_high": "> 500 Ω",
-    "ohm_meter_open": "- - -",
+    "ohm_meter_high": " > 500 Ω",
+    "ohm_meter_open": " - - -",
 
     # --- Beállítás-mentés visszajelzése (settings.toml) ---
     "save_ok": "Sikeres mentés",
