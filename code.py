@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v8" # add measurement cycle
+VERSION = "0v81" # .deinit() after user ABORTED cycle
 
 
 def dprint(*args, **kwargs) -> None:
@@ -122,10 +122,10 @@ CYCLE_PROGRESS_UPDATE_INTERVAL = 0.05  # TFT ms-visszaszámláló frissítési g
 
 # --- settings.toml alapértékek (ha a fájl hiányzik/hibás, ezekre esünk vissza) ---
 DEFAULT_T_ELO_MS = 2000
-DEFAULT_T_BENT_MS = 4000
-DEFAULT_T_UTO_MS = 8000
-DEFAULT_R_ELL_OHM = 100
-DEFAULT_BACKLIGHT_DUTY = 2048
+DEFAULT_T_BENT_MS = 6000
+DEFAULT_T_UTO_MS = 5000
+DEFAULT_R_ELL_OHM = 80
+DEFAULT_BACKLIGHT_DUTY = 4096
 
 # --- "Már a gyökérben vagyunk" villanás (LEFT/rövid ESC no-op-nál) ---
 ROOT_BUMP_DURATION = 1.0
@@ -519,8 +519,9 @@ class FanoeMeasurementCycle:
         dprint("FanoeMeasurementCycle: start -> T_ELO")
 
     def abort(self):
-        """Azonnali, feltétel nélküli megszakítás - IO7 OFF, nincs EVALUATE."""
+        """Azonnali, feltétel nélküli megszakítás - IO7 OFF, pinek elengedése, nincs EVALUATE."""
         self._relay.off()
+        self.stop()  # Lekapcsolja a relét és deinit-eli az IO6 contact és IO14 ADC pineket!
         self.state = self.STATE_ABORTED
         dprint("FanoeMeasurementCycle: ABORTED (felhasznalo)")
 
