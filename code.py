@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v82" # t_ki mérés, csak ha volt t_be
+VERSION = "0v83" # fanoe_be/fanoe_ki éldetektálás (nem szint-alapú)
 
 
 def dprint(*args, **kwargs) -> None:
@@ -48,6 +48,7 @@ def get_int_setting(key, default):
         dprint(f"settings.toml: {key} erteke ervenytelen ('{raw}'), default={default}")
         return default
 
+
 def format_message(key, **kwargs):
     """TFT_MESSAGES kulcs feloldása és .format()-olása. Egysoros sablonnál
     (str) egy stringet ad vissza, kétsoros bejegyzésnél (tuple) egy
@@ -55,7 +56,7 @@ def format_message(key, **kwargs):
     template = TFT_MESSAGES[key]
     if isinstance(template, tuple):
         return tuple(line.format(**kwargs) for line in template)
-    return template.format(**kwargs)    
+    return template.format(**kwargs)
 
 # --- DISPLAY KONFIGURÁCIÓ ---
 DISPLAY_WIDTH = 284
@@ -478,6 +479,7 @@ class FanoeMeasurementCycle:
         self._last_adc_sample_time = 0
         self._ohm_samples = []
         self._r_ell_was_above = False
+        self._prev_contact_closed = False  # él-detektáláshoz: fanoe_be/fanoe_ki
 
         self.fanoe_be_time = None
         self.fanoe_ki_time = None
@@ -504,6 +506,7 @@ class FanoeMeasurementCycle:
         self._adc = analogio.AnalogIn(self._adc_pin)
 
         self._reset_results()
+        self._prev_contact_closed = self.contact_closed  # valódi induló állapot rögzítése
         now = time.monotonic()
         self._cycle_start = now
         self._t_elo_end = now + self.t_elo_ms / 1000
@@ -624,9 +627,12 @@ class FanoeMeasurementCycle:
                 dprint("FanoeMeasurementCycle: T_BENT, IO7 ON")
 
         elif self.state == self.STATE_T_BENT:
-            if self.fanoe_be_time is None and self.contact_closed:
+            current_closed = self.contact_closed
+            if (self.fanoe_be_time is None and current_closed
+                    and not self._prev_contact_closed):
                 self.fanoe_be_time = now
                 dprint(f"FanoeMeasurementCycle: fanoe_be @ {now - self._cycle_start:.3f}s")
+            self._prev_contact_closed = current_closed
             if now >= self._t_bent_end:
                 if self.fanoe_be_time is None:
                     self.error_no_pullin = True
@@ -637,10 +643,12 @@ class FanoeMeasurementCycle:
                 dprint("FanoeMeasurementCycle: T_UTO, IO7 OFF")
 
         elif self.state == self.STATE_T_UTO:
-            #if self.fanoe_ki_time is None and not self.contact_closed:
-            if self.fanoe_ki_time is None and self.fanoe_be_time is not None and not self.contact_closed:
+            current_closed = self.contact_closed
+            if (self.fanoe_ki_time is None and self.fanoe_be_time is not None
+                    and not current_closed and self._prev_contact_closed):
                 self.fanoe_ki_time = now
                 dprint(f"FanoeMeasurementCycle: fanoe_ki @ {now - self._cycle_start:.3f}s")
+            self._prev_contact_closed = current_closed
             if now >= self._cycle_end:
                 if self.fanoe_ki_time is None:
                     self.error_no_dropout = True
