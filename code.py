@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v83" # fanoe_be/fanoe_ki éldetektálás (nem szint-alapú)
+VERSION = "0v85" # IO7 ind. előtti beragadás és korai eleng. védelemmel
 
 
 def dprint(*args, **kwargs) -> None:
@@ -488,6 +488,11 @@ class FanoeMeasurementCycle:
         self.fanoe_ell = None
         self.fanoe_ell_locked = False
         self.fanoe_szakadt = False
+        
+        # --- ÚJ HIBA-FLAGEK ---
+        self.error_already_closed = False    # Alaphelyzetben beragadt kontaktus
+        self.error_premature_dropout = False # Gerjesztés alatt váratlanul kinyitott kontaktus
+        
         self.error_no_pullin = False
         self.error_no_dropout = False
 
@@ -498,21 +503,30 @@ class FanoeMeasurementCycle:
         self.r_ki_ms = None
 
     def start(self):
-        """Ciklus indítása: pin-ek foglalása, T_ELO állapotba lépés."""
+        """Ciklus indítása: pin-ek foglalása, kiinduló állapot ellenőrzése."""
         self._contact = digitalio.DigitalInOut(self._contact_pin)
         self._contact.direction = digitalio.Direction.INPUT
         self._contact.pull = digitalio.Pull.UP  # zárva (behúzva) = LOW
 
-        self._adc = analogio.AnalogIn(self._adc_pin)
-
         self._reset_results()
-        self._prev_contact_closed = self.contact_closed  # valódi induló állapot rögzítése
+
+        # Ellenőrizzük, hogy a kontaktus alaphelyzetben nyitva van-e (nem-e zárt még indítás előtt)
+        if self.contact_closed:
+            self.error_already_closed = True
+            self.state = self.STATE_RESULT
+            dprint("FanoeMeasurementCycle: ABORT - Contact already closed before relay trigger!")
+            return False  # Sikertelen indítás a beragadt kontaktus miatt
+
+        self._adc = analogio.AnalogIn(self._adc_pin)
+        self._prev_contact_closed = False  # Mivel ellenőriztük, biztosan False volt
+
         now = time.monotonic()
         self._cycle_start = now
         self._t_elo_end = now + self.t_elo_ms / 1000
         self._relay.off()
         self.state = self.STATE_T_ELO
         dprint("FanoeMeasurementCycle: start -> T_ELO")
+        return True
 
     def abort(self):
         """Azonnali, feltétel nélküli megszakítás - IO7 OFF, pinek elengedése, nincs EVALUATE."""
@@ -632,6 +646,13 @@ class FanoeMeasurementCycle:
                     and not self._prev_contact_closed):
                 self.fanoe_be_time = now
                 dprint(f"FanoeMeasurementCycle: fanoe_be @ {now - self._cycle_start:.3f}s")
+            
+            # Váratlan bontás (korai elengedés) figyelése T_BENT alatt, amennyiben már beépült
+            if self.fanoe_be_time is not None and not current_closed:
+                if not self.error_premature_dropout:
+                    self.error_premature_dropout = True
+                    dprint("FanoeMeasurementCycle: ERROR - Premature dropout during T_BENT!")
+
             self._prev_contact_closed = current_closed
             if now >= self._t_bent_end:
                 if self.fanoe_be_time is None:
@@ -988,10 +1009,17 @@ class FanoeTesterApp:
     def _action_start_measurement_cycle(self):
         """A 'FÁNOE BE/KI MÉRÉS' leaf-en belüli megerősítő ENTER-re fut le
         (confirm_keys minta) - elindítja a FanoeMeasurementCycle-t."""
-        self.measurement_cycle.start()
         self._cycle_active = True
         self._cycle_last_update = time.monotonic()
         self.led.start()
+        
+        # Ciklus indítása (visszatérési értéke jelzi, ha indítási hiba történt)
+        started_ok = self.measurement_cycle.start()
+        if not started_ok:
+            # Ha már az elején hiba volt (pl. beragadt zárva a kontaktus), közvetlenül a RESULT lista jön
+            self._finish_measurement_cycle()
+            return True
+
         self._render_cycle_progress(self.measurement_cycle.state)
         dprint("Meresi ciklus inditva")
         return True
@@ -1027,30 +1055,40 @@ class FanoeTesterApp:
         cyc = self.measurement_cycle
         lines = []
 
-        if cyc.error_no_pullin:
-            lines.append(format_message("result_err_no_pullin"))
-        if cyc.error_no_dropout:
-            lines.append(format_message("result_err_no_dropout"))
-
-        t_be_val = str(cyc.t_be_ms) if cyc.t_be_ms is not None else format_message("value_na")
-        lines.append(format_message("result_t_be", value=t_be_val))
-
-        t_ki_val = str(cyc.t_ki_ms) if cyc.t_ki_ms is not None else format_message("value_na")
-        lines.append(format_message("result_t_ki", value=t_ki_val))
-
-        if cyc.fanoe_szakadt:
-            ell_val = format_message("value_szakadt")
-        elif cyc.fanoe_ell is not None:
-            ell_val = f"{cyc.fanoe_ell:.1f}"
+        # 1. Ha el sem tudott indulni, mert alapból zárva volt
+        if getattr(cyc, "error_already_closed", False):
+            lines.append(format_message("result_err_already_closed"))
+            lines.append(format_message("result_t_be", value=format_message("value_na")))
+            lines.append(format_message("result_t_ki", value=format_message("value_na")))
+            lines.append(format_message("result_fanoe_ell", value=format_message("value_na")))
         else:
-            ell_val = format_message("value_na")
-        lines.append(format_message("result_fanoe_ell", value=ell_val))
+            # 2. Normál lefutás (vagy futás közbeni hibák kezelése)
+            if cyc.error_no_pullin:
+                lines.append(format_message("result_err_no_pullin"))
+            if getattr(cyc, "error_premature_dropout", False):
+                lines.append(format_message("result_err_premature"))
+            if cyc.error_no_dropout:
+                lines.append(format_message("result_err_no_dropout"))
 
-        r_be_val = str(cyc.r_be_ms) if cyc.r_be_ms is not None else format_message("value_na")
-        lines.append(format_message("result_r_be", value=r_be_val))
+            t_be_val = str(cyc.t_be_ms) if cyc.t_be_ms is not None else format_message("value_na")
+            lines.append(format_message("result_t_be", value=t_be_val))
 
-        r_ki_val = str(cyc.r_ki_ms) if cyc.r_ki_ms is not None else format_message("value_na")
-        lines.append(format_message("result_r_ki", value=r_ki_val))
+            t_ki_val = str(cyc.t_ki_ms) if cyc.t_ki_ms is not None else format_message("value_na")
+            lines.append(format_message("result_t_ki", value=t_ki_val))
+
+            if cyc.fanoe_szakadt:
+                ell_val = format_message("value_szakadt")
+            elif cyc.fanoe_ell is not None:
+                ell_val = f"{cyc.fanoe_ell:.1f}"
+            else:
+                ell_val = format_message("value_na")
+            lines.append(format_message("result_fanoe_ell", value=ell_val))
+
+            r_be_val = str(cyc.r_be_ms) if cyc.r_be_ms is not None else format_message("value_na")
+            lines.append(format_message("result_r_be", value=r_be_val))
+
+            r_ki_val = str(cyc.r_ki_ms) if cyc.r_ki_ms is not None else format_message("value_na")
+            lines.append(format_message("result_r_ki", value=r_ki_val))
 
         self._cycle_active = False
         self.led.stop()

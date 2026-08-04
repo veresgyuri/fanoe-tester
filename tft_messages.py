@@ -32,11 +32,17 @@ TFT_MESSAGES = {
     "err_no_pullin": (" HIBA: FÁNOE nem", " húzott be időben"),
     "err_no_dropout": (" HIBA: FÁNOE nem", " ejtett el időben"),
     "err_fanoe_szakadt": (" HIBA: ellenállás", " szakadt (> 500 Ω)"),
+    
+    # --- Új kétsoros önálló hibaüzenet (ha szükséges) ---
+    "err_already_closed": (" HIBA: a kontakt", " alapból zárva van!"),
+    "err_premature": (" HIBA: váratlan", " elengedés T_BENT alatt"),
 
     # --- Egysoros hibajelzés a RESULT lapozható listájában (NEM állítja
     #     meg a ciklust, csak extra sor a lista elején, ha volt hiba) ---
     "result_err_no_pullin": " HIBA: nem húzott be",
     "result_err_no_dropout": " HIBA: nem ejtett el",
+    "result_err_already_closed": " HIBA: alapból zárva",
+    "result_err_premature": " HIBA: korai elengedés",
 
     # --- Megszakítás (ESC aktív állapotban) ---
     "aborted_by_user": (" A mérés megszakítva", " visszalépés ▶"),

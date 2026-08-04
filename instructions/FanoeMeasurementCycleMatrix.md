@@ -63,7 +63,7 @@ PullUp resistors          REPL
 +-- tft_messages.py (központi kijelző üzenet szótár)  
 
 ```
-# FÁNOE Mérési Ciklus Állapotmátrix és Hibavédelmi Táblázat
+# FÁNOE Mérési Ciklus Állapotmátrix és Hibavédelmi Táblázat (code.py 0v85)
 
 Ez a dokumentum a `FanoeMeasurementCycle` állapotgép futásidejű viselkedését, a digitális (IO6) és analóg (IO14) bemenetek lehetséges eseményeit, valamint a szoftveres reakciókat foglalja össze.
 ```
