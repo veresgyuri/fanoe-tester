@@ -149,9 +149,9 @@ PullUp resistors          REPL
 
 |       FŐMENÜ       |      almenü         |     TFT 1. sor      |     TFT 2. sor     |
 |-------------------22--------------------22--------------------23-------------------23
-|ELLENÁLLÁS MÉRÉS ⏎  |      (nincs)        | Ohm-mérés üzemmód   |     xxx.x Ω        |
+|ELLENÁLLÁS MÉRÉS ⏎  |      (nincs)        |Ohm-mérés üzemmód    |     xxx.x Ω        |
 |                       ────────────────────────────────────────────────────────────
-|FÁNOE KÉZI BE ▶     |      (nincs)        | FÁNOE behúzatás ⏎   |  csak nyomva aktív |
+|FÁNOE KÉZI BE ▶     |      (nincs)        |FÁNOE behúzatás ⏎    |  csak nyomva aktív |
 |                    |  ────────────────────────────────────────────────────────────
 |FÁNOE BE/KI MÉRÉS ▶ |      (nincs)        |t_elo, t_bent, t_uto | Ciklus indítása  ⏎ |
 |                    |  ────────────────────────────────────────────────────────────
@@ -160,15 +160,18 @@ PullUp resistors          REPL
 |                    |FÁNOE KI utóidő ▶    |KI utáni idő ↑↓   ⏎  |     t_uto ms       |
 |                    |Ohm érték állítás ▶  |alsó Ω érték ↑↓   ⏎  |     r_ell Ω        |
 |                    |Fényerő állítása ▶   |TFT fényerő  ↑↓   ⏎  |      9 / x         |
-|                    |Színek állítása  ▶   |TFT színvilág ↑↓  ⏎  |      5 / x         | 
-|                    |  ────────────────────────────────────────────────────────────  |       
+────────────────────────────────────────────────────────────  |       
 |INFORMÁCIÓK ⏎       |CPU frekvencia ->    |ESP32-S3 CPU órajel: |   {freq} MHz       |
 |                    |CPU hőmérséklet ->   |ESP32-S3 CPU hőfok:  |   {temp} °C        |
-|                    |Szabad memória ->    |Szabad RAM memória:  |   {ram,flash} MB   |
+|                    |Használt memória ->  |Használt RAM memória |   {mem} KB         |
+|                    |Szabad memória ->    |Szabad RAM memória:  |   {ram} KB         |
+|                    |Foglalt tárhely ->   |Foglalt flash memória:   {flash} MB       |
+|                    |Szabad tárhely ->    |Szabad flash memória:|   {flash} MB       |
 |                    |Alaplap azonosító -> |Board azonosító:     |   {board_id}       |
 |                    |Chip azonosító ->    |Chip típus azonosító:|   {uid}            |
 |                    |Hardwer verzió ->    |Hardwer felépítés:   |   "ver.1.0 ✗"      |
-|                    |Software verzió ->   |Software verzió:     |   {version} ✓      |
+|                    |CircutPython ver. -> |cPy firmware verzió: |   {fw.version}     | 
+|                    |Software verzió ->   |Software verzió:     |   {VERSION}        |
 |                    |https://github.com ->|github/veresgyuri/   |   fanoe-tester ☺   |
 |                       ────────────────────────────────────────────────────────────  
 |RESTART *.*  ▶ ⏎    |Sw. újraindítás ▶    |   biztos benne?     |  igen ⏎ | nem ESC  |
@@ -240,7 +243,11 @@ IO7 = OFF azonnal (biztonsági lekapcsolás, függetlenül az aktuális állapot
       - felhasználó ESC -> vissza a főmenübe (menü navigáció, nem érinti a mérési logikát)
 
   T_ELO
-    - Belépés: start() meghívva. cycle_start_time = most. IO7 = OFF.
+    - Belépés: start() meghívva.
+    - Indítás előtti ellenőrzés (biztonsági retesz):
+      - A start() legelső lépéseként ellenőrizzük az IO6 állapotát.
+      - Ha a kontaktus már az indítás pillanatában zárt (IO6 = LOW) -> ERROR_ALREADY_CLOSED állapot rögzítése, a ciklus normál indítása megszakad, nem húzzuk be a relét (IO7 = OFF), és azonnal a RESULT állapotba ugrunk.
+      - Ha a kontaktus nyitott (helyes kiindulási állapot) -> cycle_start_time = most. IO7 = OFF.
     - Kilépés: elapsed >= t_elo -> T_BENT
 
   T_BENT
@@ -249,6 +256,9 @@ IO7 = OFF azonnal (biztonsági lekapcsolás, függetlenül az aktuális állapot
     - IO6: az ELSŐ záródás -> fanoe_be_time rögzítve, t_be = fanoe_be_time - t_elo
            (ha T_BENT alatt nem történik záródás -> ERROR_NO_PULLIN jelzés,
             a ciklus NEM áll le emiatt)
+    - IO6: Ha a kontaktus már sikeresen beépült (fanoe_be_time nem None), de a T_BENT fázis
+           lejárta előtt (amíg a relé még aktív) a kontaktus visszanyit -> ERROR_PREMATURE_DROPOUT
+           (korai elengedés hiba rögzítése, a ciklus nem áll le emiatt)
     - IO14: T_SETTLE_MS elteltével fanoe_be_time után figyeljük a stabilitást
             (lásd EVALUATE, fanoe_ell számítása)
     - IO14: párhuzamosan, EGYMÁSTÓL FÜGGETLENÜL figyeljük az r_ell küszöb
@@ -281,8 +291,11 @@ IO7 = OFF azonnal (biztonsági lekapcsolás, függetlenül az aktuális állapot
 
   RESULT
     - TFT-n megjelenik: t_be, t_ki, fanoe_ell (vagy "szakadt"), r_be, r_ki (vagy "N/A"),
-      valamint bármelyik ERROR_NO_PULLIN / ERROR_NO_DROPOUT jelzés, ha történt.
-    - Egyik jelzés SEM állítja meg korábban a ciklust - csak tájékoztató jellegű.
+      valamint bármelyik ERROR_ALREADY_CLOSED / ERROR_PREMATURE_DROPOUT / ERROR_NO_PULLIN /
+      ERROR_NO_DROPOUT jelzés, ha történt.
+    - Ha ERROR_ALREADY_CLOSED történt, az összes mérési részeredmény automatikusan "N/A" lesz.
+    - Egyik jelzés SEM állítja meg korábban az aktív mérést (kivéve az indítás előtti
+      ERROR_ALREADY_CLOSED állapotot, amely megakadályozza a ciklus felesleges elindulását).
     - Kilépés: felhasználó ESC -> IDLE
 
 
@@ -292,9 +305,11 @@ IO7 = OFF azonnal (biztonsági lekapcsolás, függetlenül az aktuális állapot
    mindenkori értékeiből számolva) - soha nem a kódba írt fix, pl. 15000 ms.
 2. Az IO6 (digitális) és az IO14 (analóg/ADC) érzékelési útvonalak EGYMÁSTÓL
    FÜGGETLENÜL futnak. Egyik sem várja meg vagy blokkolja a másikat.
-3. Egyik hibajelzés (ERROR_NO_PULLIN, ERROR_NO_DROPOUT, "szakadt") sem állítja
-   le a ciklust korábban - a ciklus mindig a teljes cycle_duration-ig fut,
-   utána jelentjük együtt az összes történést/hiányzó adatot.
+3. Futás közbeni hibajelzés (ERROR_NO_PULLIN, ERROR_PREMATURE_DROPOUT, ERROR_NO_DROPOUT, "szakadt") sem állítja
+   le a ciklust korábban - a mérés mindig a teljes cycle_duration-ig fut, utána jelentjük együtt az összes
+   történést/hiányzó adatot. Ez alól egyetlen kivétel van: ha indításkor a kontaktus már alapból zárt
+   (ERROR_ALREADY_CLOSED). Ebben az esetben a relé meghúzása nélkül azonnal a RESULT állapotba lépünk a
+   felesleges terhelés és a téves mérések elkerülése érdekében.
 4. r_be/r_ki KIZÁRÓLAG közelítő időbecslés (100ms mintavételi pontosság),
    NEM minősítés - a FANOE tényleges jó/rossz elbírálása a szervizes
    feladata a kijelzett Ohm érték alapján, ezt a kód NEM automatizálja.
@@ -310,5 +325,6 @@ IO7 = OFF azonnal (biztonsági lekapcsolás, függetlenül az aktuális állapot
         0.20 - automatikus mérési ciklus állapotgép specifikáció (2026-07-26)
         0.30 - menu struktúra hozzáadva, menu_data.py (2026-07-28)
         0.31 - kapcsolási rajz hozzáadva (2026-07-29)
+        0.40 - indítás előtti zárt állapot és korai elengedés kezelése (2026-08-04)
 
 """
