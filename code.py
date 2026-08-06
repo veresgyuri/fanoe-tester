@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v85" # IO7 ind. előtti beragadás és korai eleng. védelemmel
+VERSION = "0v86" # T_BENT alatti elejtésre nincs "nem ejtett el"
 
 
 def dprint(*args, **kwargs) -> None:
@@ -605,7 +605,11 @@ class FanoeMeasurementCycle:
     def _evaluate(self):
         if self.fanoe_be_time is not None:
             self.t_be_ms = int((self.fanoe_be_time - self._t_elo_end) * 1000)
-        if self.fanoe_ki_time is not None:
+        # Ha volt korai elengedés a T_BENT alatt, a t_ki értéke KÖTELEZŐEN None (N/A) marad!
+        if self.error_premature_dropout:
+            self.fanoe_ki_time = None
+            self.t_ki_ms = None
+        elif self.fanoe_ki_time is not None:
             self.t_ki_ms = int((self.fanoe_ki_time - self._t_bent_end) * 1000)
         if self.r_be_time is not None:
             self.r_be_ms = int((self.r_be_time - self._t_elo_end) * 1000)
@@ -665,15 +669,24 @@ class FanoeMeasurementCycle:
 
         elif self.state == self.STATE_T_UTO:
             current_closed = self.contact_closed
-            if (self.fanoe_ki_time is None and self.fanoe_be_time is not None
-                    and not current_closed and self._prev_contact_closed):
-                self.fanoe_ki_time = now
-                dprint(f"FanoeMeasurementCycle: fanoe_ki @ {now - self._cycle_start:.3f}s")
+            
+            # Csak akkor figyeljük a T_UTO alatti nyitást, ha NEM volt korai elengedés a T_BENT-ben
+            if not self.error_premature_dropout:
+                if (self.fanoe_ki_time is None and self.fanoe_be_time is not None
+                        and not current_closed and self._prev_contact_closed):
+                    self.fanoe_ki_time = now
+                    dprint(f"FanoeMeasurementCycle: fanoe_ki @ {now - self._cycle_start:.3f}s")
+            
             self._prev_contact_closed = current_closed
+            
             if now >= self._cycle_end:
-                if self.fanoe_ki_time is None:
-                    self.error_no_dropout = True
-                    dprint("FanoeMeasurementCycle: ERROR_NO_DROPOUT")
+                # HIBA: Csak akkor adunk "nem ejtett el" hibát, ha NEM volt korai elengedés, 
+                # ÉS a ciklus végén a kontaktus MÉG MINDIG ZÁRT (beragadt).
+                if self.fanoe_ki_time is None and not self.error_premature_dropout:
+                    if current_closed:  # Ha a ciklus végén is zárt maradt -> BERAGADT
+                        self.error_no_dropout = True
+                        dprint("FanoeMeasurementCycle: ERROR_NO_DROPOUT (beragadt)")
+                
                 self._evaluate()
                 self.state = self.STATE_RESULT
 

@@ -275,8 +275,8 @@ IO7 = OFF azonnal (biztonsági lekapcsolás, függetlenül az aktuális állapot
     - Belépés: IO7 = OFF. relay_off_time = most.
     - IO6: az ELSŐ nyitás -> fanoe_ki_time rögzítve,
            t_ki = fanoe_ki_time - relay_off_time
-           (ha ciklus végéig nem történik meg -> ERROR_NO_DROPOUT jelzés,
-            a ciklus NEM áll le emiatt)
+           Csak akkor adjunk ERROR_NO_DROPOUT jelzést, ha nem volt korai elengedés a T_BENT alatt,  
+           és a ciklus végén a kontaktus még mindig zárt (beragadt).
     - IO14: továbbra is fut; figyeljük az r_ell küszöb UTOLSÓ átlépését lefelé
             -> r_ki_time rögzítve (ha nem történik meg, r_ki = N/A, NEM hiba)
     - Kilépés:
@@ -316,7 +316,7 @@ IO7 = OFF azonnal (biztonsági lekapcsolás, függetlenül az aktuális állapot
 | **T_BENT** <br>*(Gerjesztési fázis)* | `ON` | **Záródnia kell** (IO6 átvált `LOW`-ra) | Stabil alacsony ellenállás (`< r_ell`, majd zárolódik `fanoe_ell`) | **A) Nem húz be időben:** T_BENT végéig nincs záró él. | **Hibajelzés:** `error_no_pullin` = `True`. A ciklus lefut végig, a RESULT listában: `HIBA: nem húzott be` és `t_be: N/A`. |
 | **T_BENT** <br>*(Gerjesztési fázis)* | `ON` | Zárt állapot fenntartása | Stabil ellenállás (`fanoe_ell` zárolva) | **B) Korai elengedés:** Beépül (`fanoe_be` rögzítve), de a T_BENT lejárta *előtt* kinyit az érintkező. | **Hibajelzés:** `error_premature_dropout` = `True`. A ciklus lefut végig, a RESULT listában: `HIBA: korai elengedés`. |
 | **T_BENT** <br>*(Gerjesztési fázis)* | `ON` | Zárt állapot | Az ellenállás az `r_ell` küszöb felett marad (`r_be_time` rögzítés) | **C) Érintkezési hiba / Magas átmeneti ellenállás:** Az IO6 zár, de az IO14-en mért ellenállás szakadást (`szakadt`) vagy magas értéket mutat. | **Mérés / Jelzés:** `fanoe_ell` = `szakadt` vagy valós magas érték. A ciklus lefut, a RESULT listában megjelenik a mért/szakadt érték (minősítést a kezelő végez). |
-| **T_UTO** <br>*(Utóidő / Elejtés)* | `OFF` | **Nyitnia kell** (IO6 átvált `HIGH`-ra) | Megemelkedik az ellenállás (`> r_ell`) | **A) Nem ejt el időben:** A ciklus végéig (T_UTO lejárta) nincs nyitó él. | **Hibajelzés:** `error_no_dropout` = `True`. A ciklus lefut végig, a RESULT listában: `HIBA: nem ejtett el` és `t_ki: N/A`. |
+| **T_UTO** <br>*(Utóidő / Elejtés)* | `OFF` | **Nyitnia kell** (IO6 átvált `HIGH`-ra) | Megemelkedik az ellenállás (`> r_ell`) | **A) Nem ejt el időben:** A ciklus végéig (T_UTO lejárta) nincs nyitó él. | **Hibajelzés:** `error_no_dropout` = `True`. A ciklus lefut végig, a RESULT listában: `HIBA: nem ejtett el` és `t_ki: N/A`. A korai elengedés (error_premature_dropout) után a T_UTO-beli no_dropout hiba szűrésre kerül, és a t_ki értéke N/A lesz.|
 | **T_UTO** <br>*(Utóidő / Elejtés)* | `OFF` | Nyitott állapot fenntartása | Magas ellenállás / Szakadt (`r_ki_time` rögzítés) | **B) Peremfeltétel 2:** Elejt, de T_UTO alatt még egyszer véletlenül bezár, majd újra kinyit. | **Ignorálás:** A szoftver az *első* érvényes nyitó élt rögzíti `fanoe_ki_time`-ként (`T_UTO` belépésétől számolva). A későbbi utólagos pattogások/zárások nem írják felül a már rögzített `t_ki` értéket. |
 
 
@@ -348,5 +348,6 @@ IO7 = OFF azonnal (biztonsági lekapcsolás, függetlenül az aktuális állapot
         0.31 - kapcsolási rajz hozzáadva (2026-07-29)
         0.40 - indítás előtti zárt állapot és korai elengedés kezelése (2026-08-04)
         0.50 - állapotmártix és hibakezelés táblázat hozzáadva
+        0.52 - T_BENT alatti korai elengedés, hibaüzenet korrekció a T_UTO-ban (2026-08-06)
 
 """
