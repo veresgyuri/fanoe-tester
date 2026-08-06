@@ -233,8 +233,9 @@ IO7 = OFF azonnal (biztonsági lekapcsolás, függetlenül az aktuális állapot
 Átlépés -> ABORTED 
 
 - ABORTED
-    - TFT-n megjelenik: "aborted_by_user" üzenetkulcs (-> tft_messages.py, pl. "Mérés megszakítva")
-    - Kilépés: felhasználó ESC (vagy rövid időzítés után automatikusan) -> IDLE
+    - TFT-n megjelenik: "aborted_by_user" üzenetkulcs (-> tft_messages.py, "Mérés megszakítva, visszalépés ▶")
+    - Kilépés:
+      - felhasználó ESC -> vissza a főmenübe
 
 - IDLE
     - Várakozás: IO7 = OFF. Semmilyen mérés nem fut.  
@@ -248,7 +249,9 @@ IO7 = OFF azonnal (biztonsági lekapcsolás, függetlenül az aktuális állapot
       - A start() legelső lépéseként ellenőrizzük az IO6 állapotát.
       - Ha a kontaktus már az indítás pillanatában zárt (IO6 = LOW) -> ERROR_ALREADY_CLOSED állapot rögzítése, a ciklus normál indítása megszakad, nem húzzuk be a relét (IO7 = OFF), és azonnal a RESULT állapotba ugrunk.
       - Ha a kontaktus nyitott (helyes kiindulási állapot) -> cycle_start_time = most. IO7 = OFF.
-    - Kilépés: elapsed >= t_elo -> T_BENT
+    - Kilépés:
+      - elapsed >= t_elo -> T_BENT
+      - felhasználó ESC -> mérés megszakítva, visszalépés ▶
 
   T_BENT
     - Belépés: IO7 = ON. relay_on_time = most.
@@ -264,7 +267,9 @@ IO7 = OFF azonnal (biztonsági lekapcsolás, függetlenül az aktuális állapot
     - IO14: párhuzamosan, EGYMÁSTÓL FÜGGETLENÜL figyeljük az r_ell küszöb
             ELSŐ átlépését fölfelé -> r_be_time rögzítve
             (ha nem történik meg, r_be = N/A, ez NEM hiba)
-    - Kilépés: elapsed >= t_elo+t_bent -> T_UTO
+    - Kilépés:
+      - elapsed >= t_elo+t_bent -> T_UTO
+      - felhasználó ESC -> mérés megszakítva,  visszalépés ▶
 
   T_UTO
     - Belépés: IO7 = OFF. relay_off_time = most.
@@ -274,8 +279,10 @@ IO7 = OFF azonnal (biztonsági lekapcsolás, függetlenül az aktuális állapot
             a ciklus NEM áll le emiatt)
     - IO14: továbbra is fut; figyeljük az r_ell küszöb UTOLSÓ átlépését lefelé
             -> r_ki_time rögzítve (ha nem történik meg, r_ki = N/A, NEM hiba)
-    - Kilépés: elapsed >= t_elo+t_bent+t_uto (= cycle_duration) -> EVALUATE
+    - Kilépés:
+        - elapsed >= t_elo+t_bent+t_uto (= cycle_duration) -> EVALUATE
                (FELTÉTEL NÉLKÜL, függetlenül attól, hogy fanoe_ki/r_ki megtörtént-e)
+        - felhasználó ESC ->  mérés megszakítva, visszalépés ▶
 
   EVALUATE  
   Számítás a gyűjtött adatokból:
@@ -287,7 +294,8 @@ IO7 = OFF azonnal (biztonsági lekapcsolás, függetlenül az aktuális állapot
                     "szakadt", ha az ADC gyakorlatilag tápfeszültségen szaturál
   - r_be = r_be_time - t_elo                        (vagy N/A)
   - r_ki      = r_ki_time - (t_elo + t_bent)              (vagy N/A)
-  - Kilépés: automatikusan -> RESULT
+  - Kilépés:
+      - automatikusan -> RESULT
 
   RESULT
     - TFT-n megjelenik: t_be, t_ki, fanoe_ell (vagy "szakadt"), r_be, r_ki (vagy "N/A"),
@@ -296,7 +304,20 @@ IO7 = OFF azonnal (biztonsági lekapcsolás, függetlenül az aktuális állapot
     - Ha ERROR_ALREADY_CLOSED történt, az összes mérési részeredmény automatikusan "N/A" lesz.
     - Egyik jelzés SEM állítja meg korábban az aktív mérést (kivéve az indítás előtti
       ERROR_ALREADY_CLOSED állapotot, amely megakadályozza a ciklus felesleges elindulását).
-    - Kilépés: felhasználó ESC -> IDLE
+    - Kilépés:
+        - felhasználó ESC -> vissza a főmenübe
+
+### FANOE Mérési Ciklus Állapotmátrix és Hibavédelmi Táblázat
+
+| Ciklusfázis / Időtartam | Vezérlés (IO7) | Fizikai kontaktus (IO6) várt állapota | Analóg Ohm-mérés (IO14) állapota | Lehetséges rendellenes esemény (Edge Case) | Szoftveres reakció / Hibajelzés |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Indítás előtti pillanat** | `OFF` | **Nyitott** (Pull-Up miatt HIGH) | Magas ellenállás / Szakadt | **Beragadt kontaktus:** Az IO6 már indítás előtt ZÁRT (`LOW`). | **Megszakítás:** `error_already_closed` flag beállítása. A relé *nem* húz be, a ciklus azonnal megszakad, a RESULT listában megjelenik: `HIBA: alapból zárva`. |
+| **T_ELO** <br>*(Előkésleltetés)* | `OFF` | **Nyitott** marad | Magas ellenállás | **Peremfeltétel 1:** T_ELO alatt a kontaktus véletlenül bezár, majd el is ejt. | **Ignorálás:** Mivel a szoftver csak a `T_BENT` fázistól kezdi el érdemben figyelni a behúzási éleket, ez nem rontja el a `t_be` mérést. |
+| **T_BENT** <br>*(Gerjesztési fázis)* | `ON` | **Záródnia kell** (IO6 átvált `LOW`-ra) | Stabil alacsony ellenállás (`< r_ell`, majd zárolódik `fanoe_ell`) | **A) Nem húz be időben:** T_BENT végéig nincs záró él. | **Hibajelzés:** `error_no_pullin` = `True`. A ciklus lefut végig, a RESULT listában: `HIBA: nem húzott be` és `t_be: N/A`. |
+| **T_BENT** <br>*(Gerjesztési fázis)* | `ON` | Zárt állapot fenntartása | Stabil ellenállás (`fanoe_ell` zárolva) | **B) Korai elengedés:** Beépül (`fanoe_be` rögzítve), de a T_BENT lejárta *előtt* kinyit az érintkező. | **Hibajelzés:** `error_premature_dropout` = `True`. A ciklus lefut végig, a RESULT listában: `HIBA: korai elengedés`. |
+| **T_BENT** <br>*(Gerjesztési fázis)* | `ON` | Zárt állapot | Az ellenállás az `r_ell` küszöb felett marad (`r_be_time` rögzítés) | **C) Érintkezési hiba / Magas átmeneti ellenállás:** Az IO6 zár, de az IO14-en mért ellenállás szakadást (`szakadt`) vagy magas értéket mutat. | **Mérés / Jelzés:** `fanoe_ell` = `szakadt` vagy valós magas érték. A ciklus lefut, a RESULT listában megjelenik a mért/szakadt érték (minősítést a kezelő végez). |
+| **T_UTO** <br>*(Utóidő / Elejtés)* | `OFF` | **Nyitnia kell** (IO6 átvált `HIGH`-ra) | Megemelkedik az ellenállás (`> r_ell`) | **A) Nem ejt el időben:** A ciklus végéig (T_UTO lejárta) nincs nyitó él. | **Hibajelzés:** `error_no_dropout` = `True`. A ciklus lefut végig, a RESULT listában: `HIBA: nem ejtett el` és `t_ki: N/A`. |
+| **T_UTO** <br>*(Utóidő / Elejtés)* | `OFF` | Nyitott állapot fenntartása | Magas ellenállás / Szakadt (`r_ki_time` rögzítés) | **B) Peremfeltétel 2:** Elejt, de T_UTO alatt még egyszer véletlenül bezár, majd újra kinyit. | **Ignorálás:** A szoftver az *első* érvényes nyitó élt rögzíti `fanoe_ki_time`-ként (`T_UTO` belépésétől számolva). A későbbi utólagos pattogások/zárások nem írják felül a már rögzített `t_ki` értéket. |
 
 
 **Fontos elvi szabályok (CODE GENERATION LOGIC szempontjából is):**  
@@ -326,5 +347,6 @@ IO7 = OFF azonnal (biztonsági lekapcsolás, függetlenül az aktuális állapot
         0.30 - menu struktúra hozzáadva, menu_data.py (2026-07-28)
         0.31 - kapcsolási rajz hozzáadva (2026-07-29)
         0.40 - indítás előtti zárt állapot és korai elengedés kezelése (2026-08-04)
+        0.50 - állapotmártix és hibakezelés táblázat hozzáadva
 
 """
