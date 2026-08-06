@@ -29,6 +29,7 @@ TFT_MESSAGES = {
     "value_szakadt": " szakadt",
 
     # --- Hibaüzenetek (kétsoros, önálló megállító képernyők) ---
+    "err_premature_pullin": (" HIBA: váratlan", " behúzás előidő alatt"),
     "err_no_pullin": (" HIBA: FÁNOE nem", " húzott be időben"),
     "err_no_dropout": (" HIBA: FÁNOE nem", " ejtett el időben"),
     "err_fanoe_szakadt": (" HIBA: ellenállás", " szakadt (> 500 Ω)"),
@@ -39,6 +40,7 @@ TFT_MESSAGES = {
 
     # --- Egysoros hibajelzés a RESULT lapozható listájában (NEM állítja
     #     meg a ciklust, csak extra sor a lista elején, ha volt hiba) ---
+    "result_err_premature_pullin": " HIBA: korai behúzás",
     "result_err_no_pullin": " HIBA: nem húzott be",
     "result_err_no_dropout": " HIBA: nem ejtett el",
     "result_err_already_closed": " HIBA: alapból zárva",

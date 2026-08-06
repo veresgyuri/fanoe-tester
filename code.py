@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v86" # T_BENT alatti elejtésre nincs "nem ejtett el"
+VERSION = "0v87" # T_ELO alatti BE-re "HIBA: korai behúzás"
 
 
 def dprint(*args, **kwargs) -> None:
@@ -489,10 +489,10 @@ class FanoeMeasurementCycle:
         self.fanoe_ell_locked = False
         self.fanoe_szakadt = False
         
-        # --- ÚJ HIBA-FLAGEK ---
+        # --- HIBA-FLAGEK ---
         self.error_already_closed = False    # Alaphelyzetben beragadt kontaktus
+        self.error_premature_pullin = False  # Korai behúzás T_ELO alatt
         self.error_premature_dropout = False # Gerjesztés alatt váratlanul kinyitott kontaktus
-        
         self.error_no_pullin = False
         self.error_no_dropout = False
 
@@ -603,22 +603,29 @@ class FanoeMeasurementCycle:
         self._r_ell_was_above = above
 
     def _evaluate(self):
-        if self.fanoe_be_time is not None:
-            self.t_be_ms = int((self.fanoe_be_time - self._t_elo_end) * 1000)
-        # Ha volt korai elengedés a T_BENT alatt, a t_ki értéke KÖTELEZŐEN None (N/A) marad!
-        if self.error_premature_dropout:
+        # Ha bármilyen korai anomália történt (T_ELO alatti behúzás vagy T_BENT alatti elengedés),
+        # az időeredmények érvénytelenek (None / N/A) lesznek!
+        if self.error_premature_pullin or self.error_premature_dropout:
+            self.fanoe_be_time = None
+            self.t_be_ms = None
             self.fanoe_ki_time = None
             self.t_ki_ms = None
-        elif self.fanoe_ki_time is not None:
-            self.t_ki_ms = int((self.fanoe_ki_time - self._t_bent_end) * 1000)
+        else:
+            if self.fanoe_be_time is not None:
+                self.t_be_ms = int((self.fanoe_be_time - self._t_elo_end) * 1000)
+            if self.fanoe_ki_time is not None:
+                self.t_ki_ms = int((self.fanoe_ki_time - self._t_bent_end) * 1000)
+
         if self.r_be_time is not None:
             self.r_be_ms = int((self.r_be_time - self._t_elo_end) * 1000)
         if self.r_ki_time is not None:
             self.r_ki_ms = int((self.r_ki_time - self._t_bent_end) * 1000)
+            
         dprint(
             f"FanoeMeasurementCycle: EVALUATE t_be={self.t_be_ms} "
             f"t_ki={self.t_ki_ms} fanoe_ell={self.fanoe_ell} "
             f"r_be={self.r_be_ms} r_ki={self.r_ki_ms} "
+            f"err_prem_pullin={self.error_premature_pullin} "
             f"err_no_pullin={self.error_no_pullin} err_no_dropout={self.error_no_dropout} "
             f"szakadt={self.fanoe_szakadt}"
         )
@@ -637,6 +644,12 @@ class FanoeMeasurementCycle:
                 self._sample_ohms(now)
 
         if self.state == self.STATE_T_ELO:
+            # Figyeljük, hogy a T_ELO alatt bezár-e a kontaktus (korai behúzás hiba)
+            if self.contact_closed:
+                if not self.error_premature_pullin:
+                    self.error_premature_pullin = True
+                    dprint("FanoeMeasurementCycle: ERROR - Premature pullin during T_ELO!")
+
             if now >= self._t_elo_end:
                 self.state = self.STATE_T_BENT
                 self._relay.on()
@@ -1076,6 +1089,8 @@ class FanoeTesterApp:
             lines.append(format_message("result_fanoe_ell", value=format_message("value_na")))
         else:
             # 2. Normál lefutás (vagy futás közbeni hibák kezelése)
+            if getattr(cyc, "error_premature_pullin", False):
+                lines.append(format_message("result_err_premature_pullin"))
             if cyc.error_no_pullin:
                 lines.append(format_message("result_err_no_pullin"))
             if getattr(cyc, "error_premature_dropout", False):
