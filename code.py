@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v95" # Beállítások mentése settings.toml-ba (4 numerikus paraméter)
+VERSION = "0v96" # Fényerő állítás (9 diszkrét lépcső, élő előnézettel)
 
 
 def dprint(*args, **kwargs) -> None:
@@ -102,6 +102,9 @@ TFT_RST_PIN = board.IO11
 BACKLIGHT_PIN = board.IO8
 BACKLIGHT_FREQUENCY = 1000
 BACKLIGHT_ACTIVE_LOW = True
+
+# Háttérvilágítás 9 diszkrét szintje (duty cycle)
+BACKLIGHT_LEVELS = (96, 1024, 2048, 4096, 8192, 16384, 32768, 49152, 65535)
 
 FONT_PATH = "/fonts/hu_127_ekezetes_20.pcf"
 LINE1_Y = 0
@@ -907,6 +910,9 @@ class FanoeTesterApp:
         self._active_setting_max = 0
         self._active_setting_step = 0
         self._active_setting_unit = ""
+        
+        # --- Háttérvilágítás szerkesztési index ---
+        self._backlight_index = 0
 
         self._actions = {
             "restart_device": self._action_restart_device,
@@ -924,6 +930,7 @@ class FanoeTesterApp:
             "ohm_meter_enter": self._action_ohm_meter_enter,
             "start_measurement_cycle": self._action_start_measurement_cycle,
             "settings_edit_numeric": self._action_settings_edit_numeric,
+            "backlight_edit": self._action_backlight_edit,
         }
 
     def _render(self):
@@ -1115,8 +1122,27 @@ class FanoeTesterApp:
             self._active_setting_val = self._r_ell_ohm
 
         top_text, _ = item["screen"]
-        self.display.show_pair(top_text, f"{self._active_setting_val} {self._active_setting_unit}", None)
+        self.display.show_pair(top_text, f"   {self._active_setting_val} {self._active_setting_unit}", None)
         dprint(f"Szerkesztő indítva: {self._active_setting_key} = {self._active_setting_val}")
+        return True
+
+    def _action_backlight_edit(self):
+        """TFT fényerő állítás (9 diszkrét szint, élő előnézettel)."""
+        self._active_setting_key = "BACKLIGHT_DUTY"
+        
+        # Megkeressük a legközelebbi indexet a BACKLIGHT_LEVELS listában
+        closest_diff = 999999
+        self._backlight_index = 0
+        for i, val in enumerate(BACKLIGHT_LEVELS):
+            diff = abs(val - self._backlight_duty)
+            if diff < closest_diff:
+                closest_diff = diff
+                self._backlight_index = i
+
+        top_text, _ = self.navigator.current_item()["screen"]
+        # Megjelenítés: "9 / [index+1]" (1-től 9-ig számozva a usernek)
+        self.display.show_pair(top_text, f"   9 / {self._backlight_index + 1}", None)
+        dprint(f"Fényerő szerkesztő indítva: index={self._backlight_index}, duty={BACKLIGHT_LEVELS[self._backlight_index]}")
         return True
 
     def _render_cycle_progress(self, state):
@@ -1363,23 +1389,25 @@ class FanoeTesterApp:
                 if key_name == "ENTER":
                     if self.navigator.in_leaf_screen and self._active_setting_key is not None:
                         # Mentés a settings.toml-ba
-                        success = save_setting(self._active_setting_key, self._active_setting_val)
+                        save_val = BACKLIGHT_LEVELS[self._backlight_index] if self._active_setting_key == "BACKLIGHT_DUTY" else self._active_setting_val
+                        success = save_setting(self._active_setting_key, save_val)
                         
                         # Frissítjük az App belső változóját is
                         if self._active_setting_key == "T_ELO_MS":
                             self._t_elo_ms = self._active_setting_val
+                            self.measurement_cycle.t_elo_ms = self._t_elo_ms
                         elif self._active_setting_key == "T_BENT_MS":
                             self._t_bent_ms = self._active_setting_val
+                            self.measurement_cycle.t_bent_ms = self._t_bent_ms
                         elif self._active_setting_key == "T_UTO_MS":
                             self._t_uto_ms = self._active_setting_val
+                            self.measurement_cycle.t_uto_ms = self._t_uto_ms
                         elif self._active_setting_key == "R_ELL_OHM":
                             self._r_ell_ohm = self._active_setting_val
-
-                        # Frissítjük a mérési ciklus példány paramétereit is, ha épp azt futtatnák
-                        self.measurement_cycle.t_elo_ms = self._t_elo_ms
-                        self.measurement_cycle.t_bent_ms = self._t_bent_ms
-                        self.measurement_cycle.t_uto_ms = self._t_uto_ms
-                        self.measurement_cycle.r_ell_ohm = self._r_ell_ohm
+                            self.measurement_cycle.r_ell_ohm = self._r_ell_ohm
+                        elif self._active_setting_key == "BACKLIGHT_DUTY":
+                            self._backlight_duty = save_val
+                            self.display.set_operating_backlight(self._backlight_duty)
 
                         # Vizuális visszajelzés a mentésről
                         top_text, _ = self.navigator.current_item()["screen"]
@@ -1424,20 +1452,34 @@ class FanoeTesterApp:
 
                 elif key_name == "UP":
                     if self.navigator.in_leaf_screen and self._active_setting_key is not None:
-                        self._active_setting_val = min(self._active_setting_max, self._active_setting_val + self._active_setting_step)
                         top_text, _ = self.navigator.current_item()["screen"]
-                        self.display.show_pair(top_text, f"{self._active_setting_val} {self._active_setting_unit}", None)
-                        dprint(f"Ertek novelve: {self._active_setting_val}")
+                        if self._active_setting_key == "BACKLIGHT_DUTY":
+                            self._backlight_index = min(len(BACKLIGHT_LEVELS) - 1, self._backlight_index + 1)
+                            # Élő előnézet (live preview)
+                            self.display.set_operating_backlight(BACKLIGHT_LEVELS[self._backlight_index])
+                            self.display.show_pair(top_text, f"   9 / {self._backlight_index + 1}", None)
+                            dprint(f"Fényerő index növelve: {self._backlight_index}")
+                        else:
+                            self._active_setting_val = min(self._active_setting_max, self._active_setting_val + self._active_setting_step)
+                            self.display.show_pair(top_text, f"   {self._active_setting_val} {self._active_setting_unit}", None)
+                            dprint(f"Ertek novelve: {self._active_setting_val}")
                     elif not self.navigator.in_leaf_screen:
                         self.navigator.move_updown(-1)
                         self._render()
 
                 elif key_name == "DOWN":
                     if self.navigator.in_leaf_screen and self._active_setting_key is not None:
-                        self._active_setting_val = max(self._active_setting_min, self._active_setting_val - self._active_setting_step)
                         top_text, _ = self.navigator.current_item()["screen"]
-                        self.display.show_pair(top_text, f"{self._active_setting_val} {self._active_setting_unit}", None)
-                        dprint(f"Ertek csokkentve: {self._active_setting_val}")
+                        if self._active_setting_key == "BACKLIGHT_DUTY":
+                            self._backlight_index = max(0, self._backlight_index - 1)
+                            # Élő előnézet (live preview)
+                            self.display.set_operating_backlight(BACKLIGHT_LEVELS[self._backlight_index])
+                            self.display.show_pair(top_text, f"   9 / {self._backlight_index + 1}", None)
+                            dprint(f"Fényerő index csökkentve: {self._backlight_index}")
+                        else:
+                            self._active_setting_val = max(self._active_setting_min, self._active_setting_val - self._active_setting_step)
+                            self.display.show_pair(top_text, f"   {self._active_setting_val} {self._active_setting_unit}", None)
+                            dprint(f"Ertek csokkentve: {self._active_setting_val}")
                     elif not self.navigator.in_leaf_screen:
                         self.navigator.move_updown(1)
                         self._render()
