@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v90" # Kézi húzatás allatti IO7 reakció"
+VERSION = "0v91" # Kézi behúzatás előtti alapból zárt szűrés
 
 
 def dprint(*args, **kwargs) -> None:
@@ -863,8 +863,8 @@ class FanoeTesterApp:
         self._manual_hold_pressed = False  # True, amíg ENTER lenyomva tartva
         self._manual_hold_start = None
         self._manual_hold_last_update = 0
-        self._manual_hold_contact = None    # IO6 DigitalInOut, csak a leaf aktív ideje alatt él
-        self._manual_hold_pullin_ms = None  # None = még nem húzott be; utána a behúzás pillanata (ms)
+        self._manual_hold_contact = None  # IO6 DigitalInOut, csak a leaf aktív ideje alatt él
+        self._manual_hold_pullin_ms = None  # None = még nem húzott be; -1 = alapból zárva volt; utána a behúzás (ms)
         self._ohm_meter_active = False  # True, amíg az "ELLENÁLLÁS MÉRÉS" leaf-en állunk
         self._ohm_meter_last_update = 0
         self._ohm_meter_last_repl = 0
@@ -985,9 +985,8 @@ class FanoeTesterApp:
     def _action_fanoe_manual_hold_enter(self):
         """A 'FÁNOE KÉZI BE' leaf-be lépéskor fut le egyszer: a LED-et
         zöldre állítja, jelzi, hogy mostantól az ENTER folyamatos nyomva
-        tartását figyeljük. Figyeljük az IO6 kontaktot is.  
-        A statikus screen-t a generikus render mutatja
-        (ezért False-t adunk vissza)."""
+        tartását figyeljük. Létrehozza a kézi IO6 digitális bemenetet.
+        A statikus screen-t a generikus render mutatja (ezért False-t adunk vissza)."""
         self._manual_hold_active = True
         self._manual_hold_contact = digitalio.DigitalInOut(FANOE_CONTACT_PIN)
         self._manual_hold_contact.direction = digitalio.Direction.INPUT
@@ -1010,7 +1009,7 @@ class FanoeTesterApp:
             self._manual_hold_contact.deinit()
             self._manual_hold_contact = None
         self.led.stop()
-        dprint("Kezi BE mod elhagyva - relay/LED torolve")
+        dprint("Kezi BE mod elhagyva - relay/LED/contact torolve")
 
     def _action_ohm_meter_enter(self):
         """Az 'ELLENÁLLÁS MÉRÉS' leaf-be lépéskor fut le egyszer: elindítja
@@ -1195,17 +1194,22 @@ class FanoeTesterApp:
                 if now - self._manual_hold_last_update >= MANUAL_HOLD_UPDATE_INTERVAL:
                     elapsed_ms = int((now - self._manual_hold_start) * 1000)
 
-                    if (self._manual_hold_pullin_ms is None
-                            and not self._manual_hold_contact.value):  # Pull.UP: zárva = LOW
-                        self._manual_hold_pullin_ms = elapsed_ms
-                        dprint(f"Kezi BE: behuzott @ {elapsed_ms} ms")
-
-                    if self._manual_hold_pullin_ms is not None:
-                        text = f"  behúzott: {self._manual_hold_pullin_ms} ms"
-                        color = COLOR_TEXT_SUCCESS
+                    # Ha alapból zárva volt (-1), ne számoljunk időt, csak jelezzük a hibát
+                    if self._manual_hold_pullin_ms == -1:
+                        text = "   [ ALAPBÓL ZÁRVA ]"
+                        color = COLOR_TEXT_DANGER
                     else:
-                        text = f"     {elapsed_ms} ms"
-                        color = COLOR_TEXT_NORMAL
+                        if (self._manual_hold_pullin_ms is None
+                                and not self._manual_hold_contact.value):  # Pull.UP: zárva = LOW
+                            self._manual_hold_pullin_ms = elapsed_ms
+                            dprint(f"Kezi BE: behuzott @ {elapsed_ms} ms")
+
+                        if self._manual_hold_pullin_ms is not None:
+                            text = f"  behúzott: {self._manual_hold_pullin_ms} ms"
+                            color = COLOR_TEXT_SUCCESS
+                        else:
+                            text = f"     {elapsed_ms} ms"
+                            color = COLOR_TEXT_NORMAL
 
                     self.display.set_line(False, text, False, bg_color=COLOR_BG_NORMAL, text_color=color)
                     self._manual_hold_last_update = now
@@ -1261,20 +1265,37 @@ class FanoeTesterApp:
 
                 if self._manual_hold_active and key_name == "ENTER":
                     self._manual_hold_pressed = True
-                    self._manual_hold_pullin_ms = None
                     self._manual_hold_start = time.monotonic()
                     self._manual_hold_last_update = self._manual_hold_start
+                    
+                    # Ellenőrizzük a kezdeti állapotot: már most zárva van?
+                    initially_closed = not self._manual_hold_contact.value if self._manual_hold_contact else False
+                    
+                    if initially_closed:
+                        self._manual_hold_pullin_ms = -1  # -1 = Alapból zárva volt
+                        dprint("Kezi BE HIBA: A kontaktus már indításkor zárva volt!")
+                    else:
+                        self._manual_hold_pullin_ms = None
+
                     self.relay.on()
                     self.led.set_red()
                     dprint("Vezérlő parancs kiadva - IO7")
+                    
                     self.display.set_line(
                         True, " BE parancs kiadva", False,
                         bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_DANGER,
                     )
-                    self.display.set_line(
-                        False, "     0 ms", False,
-                        bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_NORMAL,
-                    )
+                    
+                    if initially_closed:
+                        self.display.set_line(
+                            False, "   [ ALAPBÓL ZÁRVA ]", False,
+                            bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_DANGER,
+                        )
+                    else:
+                        self.display.set_line(
+                            False, "     0 ms", False,
+                            bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_NORMAL,
+                        )
                     continue
 
                 if key_name in ("ENTER", "RIGHT"):
