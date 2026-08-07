@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v91" # Kézi behúzatás előtti alapból zárt szűrés
+VERSION = "0v95" # Beállítások mentése settings.toml-ba (4 numerikus paraméter)
 
 
 def dprint(*args, **kwargs) -> None:
@@ -47,6 +47,33 @@ def get_int_setting(key, default):
     except (ValueError, TypeError):
         dprint(f"settings.toml: {key} erteke ervenytelen ('{raw}'), default={default}")
         return default
+
+
+def save_setting(key, value):
+    """Biztonságos settings.toml frissítés try-except OSError védelemmel
+    (ha Fejlesztői módban vagyunk, a fájlrendszer írásvédett, OSError-t dob)."""
+    settings = {}
+    try:
+        with open("settings.toml", "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    settings[k.strip()] = v.strip()
+    except OSError:
+        pass
+
+    settings[key] = str(value)
+
+    try:
+        with open("settings.toml", "w") as f:
+            for k, v in settings.items():
+                f.write(f"{k} = {v}\n")
+        dprint(f"settings.toml mentve: {key} = {value}")
+        return True
+    except OSError as e:
+        dprint(f"settings.toml mentési hiba (fejlesztői mód?): {e}")
+        return False
 
 
 def format_message(key, **kwargs):
@@ -872,6 +899,15 @@ class FanoeTesterApp:
         self._cycle_last_update = 0
         self._suppress_next_esc_release = False  # ciklus-megszakítás utáni ESC-felengedés elnyelése
         self._root_bump_until = 0  # 0 = inaktív; monotonic timestamp, ameddig villog
+        
+        # --- Szerkesztési állapottartók ---
+        self._active_setting_key = None
+        self._active_setting_val = 0
+        self._active_setting_min = 0
+        self._active_setting_max = 0
+        self._active_setting_step = 0
+        self._active_setting_unit = ""
+
         self._actions = {
             "restart_device": self._action_restart_device,
             "info_cpu_freq": self._action_info_cpu_freq,
@@ -887,6 +923,7 @@ class FanoeTesterApp:
             "fanoe_manual_hold_enter": self._action_fanoe_manual_hold_enter,
             "ohm_meter_enter": self._action_ohm_meter_enter,
             "start_measurement_cycle": self._action_start_measurement_cycle,
+            "settings_edit_numeric": self._action_settings_edit_numeric,
         }
 
     def _render(self):
@@ -1058,6 +1095,30 @@ class FanoeTesterApp:
         dprint("Meresi ciklus inditva")
         return True
 
+    def _action_settings_edit_numeric(self):
+        """Közös handler a numerikus (idő / ohm) beállítások szerkesztéséhez."""
+        item = self.navigator.current_item()
+        self._active_setting_key = item.get("setting_key")
+        self._active_setting_min = item.get("min_val", 0)
+        self._active_setting_max = item.get("max_val", 10000)
+        self._active_setting_step = item.get("step", 1)
+        self._active_setting_unit = item.get("unit", "")
+
+        # Betöltjük az aktuális értéket az App attribútumaiból
+        if self._active_setting_key == "T_ELO_MS":
+            self._active_setting_val = self._t_elo_ms
+        elif self._active_setting_key == "T_BENT_MS":
+            self._active_setting_val = self._t_bent_ms
+        elif self._active_setting_key == "T_UTO_MS":
+            self._active_setting_val = self._t_uto_ms
+        elif self._active_setting_key == "R_ELL_OHM":
+            self._active_setting_val = self._r_ell_ohm
+
+        top_text, _ = item["screen"]
+        self.display.show_pair(top_text, f"{self._active_setting_val} {self._active_setting_unit}", None)
+        dprint(f"Szerkesztő indítva: {self._active_setting_key} = {self._active_setting_val}")
+        return True
+
     def _render_cycle_progress(self, state):
         """A T_ELO/T_BENT/T_UTO fázisok élő kijelzése: fázisnévvel/színnel
         a felső sor, ms-visszaszámlálással az alsó - a LED ugyanazt a
@@ -1164,6 +1225,7 @@ class FanoeTesterApp:
         """LEFT vagy rövid ESC közös kezelése: ha volt tényleges lépés,
         normál render; ha már a gyökérszinten voltunk (no-op), egy rövid
         villanás jelzi ezt a usernek, majd magától visszavált."""
+        self._active_setting_key = None  # Szerkesztési állapot törlése balra lépéskor
         moved = self.navigator.go_left()
         self._cleanup_active_modes()
         if moved:
@@ -1298,8 +1360,39 @@ class FanoeTesterApp:
                         )
                     continue
 
-                if key_name in ("ENTER", "RIGHT"):
-                    if self.navigator.in_leaf_screen:
+                if key_name == "ENTER":
+                    if self.navigator.in_leaf_screen and self._active_setting_key is not None:
+                        # Mentés a settings.toml-ba
+                        success = save_setting(self._active_setting_key, self._active_setting_val)
+                        
+                        # Frissítjük az App belső változóját is
+                        if self._active_setting_key == "T_ELO_MS":
+                            self._t_elo_ms = self._active_setting_val
+                        elif self._active_setting_key == "T_BENT_MS":
+                            self._t_bent_ms = self._active_setting_val
+                        elif self._active_setting_key == "T_UTO_MS":
+                            self._t_uto_ms = self._active_setting_val
+                        elif self._active_setting_key == "R_ELL_OHM":
+                            self._r_ell_ohm = self._active_setting_val
+
+                        # Frissítjük a mérési ciklus példány paramétereit is, ha épp azt futtatnák
+                        self.measurement_cycle.t_elo_ms = self._t_elo_ms
+                        self.measurement_cycle.t_bent_ms = self._t_bent_ms
+                        self.measurement_cycle.t_uto_ms = self._t_uto_ms
+                        self.measurement_cycle.r_ell_ohm = self._r_ell_ohm
+
+                        # Vizuális visszajelzés a mentésről
+                        top_text, _ = self.navigator.current_item()["screen"]
+                        save_msg = "Sikeres mentés" if success else "Sikertelen mentés"
+                        self.display.show_pair(top_text, save_msg, None)
+                        time.sleep(0.8)
+                        
+                        # Kilépés a szerkesztő nézetből
+                        self._active_setting_key = None
+                        self.navigator.go_left()
+                        self._render()
+                        continue
+                    elif self.navigator.in_leaf_screen:
                         confirmed_item = self.navigator.confirm_action(key_name)
                         if confirmed_item is not None:
                             rendered_custom = self._dispatch_action(confirmed_item)
@@ -1315,14 +1408,37 @@ class FanoeTesterApp:
                                 self._render()
                         else:
                             self._render()
+
+                elif key_name == "RIGHT":
+                    if not self.navigator.in_leaf_screen:
+                        activated_item = self.navigator.try_activate(key_name)
+                        if activated_item is not None and activated_item.get("auto_dispatch"):
+                            rendered_custom = self._dispatch_action(activated_item)
+                            if not rendered_custom:
+                                self._render()
+                        else:
+                            self._render()
+
                 elif key_name == "LEFT":
                     self._handle_go_left()
+
                 elif key_name == "UP":
-                    if not self.navigator.in_leaf_screen:
+                    if self.navigator.in_leaf_screen and self._active_setting_key is not None:
+                        self._active_setting_val = min(self._active_setting_max, self._active_setting_val + self._active_setting_step)
+                        top_text, _ = self.navigator.current_item()["screen"]
+                        self.display.show_pair(top_text, f"{self._active_setting_val} {self._active_setting_unit}", None)
+                        dprint(f"Ertek novelve: {self._active_setting_val}")
+                    elif not self.navigator.in_leaf_screen:
                         self.navigator.move_updown(-1)
                         self._render()
+
                 elif key_name == "DOWN":
-                    if not self.navigator.in_leaf_screen:
+                    if self.navigator.in_leaf_screen and self._active_setting_key is not None:
+                        self._active_setting_val = max(self._active_setting_min, self._active_setting_val - self._active_setting_step)
+                        top_text, _ = self.navigator.current_item()["screen"]
+                        self.display.show_pair(top_text, f"{self._active_setting_val} {self._active_setting_unit}", None)
+                        dprint(f"Ertek csokkentve: {self._active_setting_val}")
+                    elif not self.navigator.in_leaf_screen:
                         self.navigator.move_updown(1)
                         self._render()
 

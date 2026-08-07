@@ -34,7 +34,7 @@ TFT_MESSAGES = {
     "err_no_dropout": (" HIBA: FÁNOE nem", " ejtett el időben"),
     "err_fanoe_szakadt": (" HIBA: ellenállás", " szakadt (> 500 Ω)"),
     
-    # --- Új kétsoros önálló hibaüzenet (ha szükséges) ---
+    # --- Kétsoros önálló hibaüzenetek ---
     "err_already_closed": (" HIBA: a kontakt", " alapból zárva van!"),
     "err_premature": (" HIBA: váratlan", " elengedés T_BENT alatt"),
 
@@ -54,8 +54,8 @@ TFT_MESSAGES = {
     "ohm_meter_open": " - - -",
 
     # --- Beállítás-mentés visszajelzése (settings.toml) ---
-    "save_ok": "Sikeres mentés",
-    "save_fail": "Sikertelen mentés",
+    "save_ok": ("Sikeres mentés", ""),
+    "save_fail": ("Sikertelen mentés", "(fejlesztői mód?)"),
 
     # --- Navigáció: (LEFT/rövid ESC no-op) ---
     "already_at_root": (" Már a főmenüben vagy", "      ⏎  ↑  ↓  ▶"),
