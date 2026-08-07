@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v87" # T_ELO alatti BE-re "HIBA: korai behúzás"
+VERSION = "0v90" # Kézi húzatás allatti IO7 reakció"
 
 
 def dprint(*args, **kwargs) -> None:
@@ -863,6 +863,8 @@ class FanoeTesterApp:
         self._manual_hold_pressed = False  # True, amíg ENTER lenyomva tartva
         self._manual_hold_start = None
         self._manual_hold_last_update = 0
+        self._manual_hold_contact = None    # IO6 DigitalInOut, csak a leaf aktív ideje alatt él
+        self._manual_hold_pullin_ms = None  # None = még nem húzott be; utána a behúzás pillanata (ms)
         self._ohm_meter_active = False  # True, amíg az "ELLENÁLLÁS MÉRÉS" leaf-en állunk
         self._ohm_meter_last_update = 0
         self._ohm_meter_last_repl = 0
@@ -983,9 +985,13 @@ class FanoeTesterApp:
     def _action_fanoe_manual_hold_enter(self):
         """A 'FÁNOE KÉZI BE' leaf-be lépéskor fut le egyszer: a LED-et
         zöldre állítja, jelzi, hogy mostantól az ENTER folyamatos nyomva
-        tartását figyeljük. A statikus screen-t a generikus render mutatja
+        tartását figyeljük. Figyeljük az IO6 kontaktot is.  
+        A statikus screen-t a generikus render mutatja
         (ezért False-t adunk vissza)."""
         self._manual_hold_active = True
+        self._manual_hold_contact = digitalio.DigitalInOut(FANOE_CONTACT_PIN)
+        self._manual_hold_contact.direction = digitalio.Direction.INPUT
+        self._manual_hold_contact.pull = digitalio.Pull.UP  # zárva (behúzva) = LOW
         self.led.start()
         self.led.set_green()
         dprint("Kezi BE mod aktiv, LED zold")
@@ -1000,6 +1006,9 @@ class FanoeTesterApp:
         self._manual_hold_active = False
         self._manual_hold_pressed = False
         self.relay.off()
+        if self._manual_hold_contact is not None:
+            self._manual_hold_contact.deinit()
+            self._manual_hold_contact = None
         self.led.stop()
         dprint("Kezi BE mod elhagyva - relay/LED torolve")
 
@@ -1185,10 +1194,20 @@ class FanoeTesterApp:
                 now = time.monotonic()
                 if now - self._manual_hold_last_update >= MANUAL_HOLD_UPDATE_INTERVAL:
                     elapsed_ms = int((now - self._manual_hold_start) * 1000)
-                    self.display.set_line(
-                        False, f"     {elapsed_ms} ms", False,
-                        bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_NORMAL,
-                    )
+
+                    if (self._manual_hold_pullin_ms is None
+                            and not self._manual_hold_contact.value):  # Pull.UP: zárva = LOW
+                        self._manual_hold_pullin_ms = elapsed_ms
+                        dprint(f"Kezi BE: behuzott @ {elapsed_ms} ms")
+
+                    if self._manual_hold_pullin_ms is not None:
+                        text = f"  behúzott: {self._manual_hold_pullin_ms} ms"
+                        color = COLOR_TEXT_SUCCESS
+                    else:
+                        text = f"     {elapsed_ms} ms"
+                        color = COLOR_TEXT_NORMAL
+
+                    self.display.set_line(False, text, False, bg_color=COLOR_BG_NORMAL, text_color=color)
                     self._manual_hold_last_update = now
 
             if self._ohm_meter_active:
@@ -1242,6 +1261,7 @@ class FanoeTesterApp:
 
                 if self._manual_hold_active and key_name == "ENTER":
                     self._manual_hold_pressed = True
+                    self._manual_hold_pullin_ms = None
                     self._manual_hold_start = time.monotonic()
                     self._manual_hold_last_update = self._manual_hold_start
                     self.relay.on()
