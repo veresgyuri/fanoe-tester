@@ -54,8 +54,8 @@ TFT_MESSAGES = {
     "ohm_meter_open": " - - -",
 
     # --- Beállítás-mentés visszajelzése (settings.toml) ---
-    "save_ok": (" Sikeres mentés", ""),
-    "save_fail": (" Sikertelen mentés", ""),
+    "save_ok": (" RAM-ba mentve +", " sikeres flash írás"),
+    "save_fail": (" Csak RAM-ba mentve!", " Sikertelen file írás"),
 
     # --- Navigáció: (LEFT/rövid ESC no-op) ---
     "already_at_root": (" Már a főmenüben vagy", "      ⏎  ↑  ↓  ▶"),

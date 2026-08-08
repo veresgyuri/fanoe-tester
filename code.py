@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v97" # Hibajavitas: stale setting-key hosszu ESC utan, blokkolo sleep a mentesnel, fenyero-elonezet visszaallitasa
+VERSION = "0v98" # Ciklus indító képernyő felső sorában aktuális idősor megjelenítése
 
 
 def dprint(*args, **kwargs) -> None:
@@ -353,7 +353,7 @@ class Display:
         )
 
         text_area = label.Label(self.font, text=WELCOME_TEXT, color=0x000000)
-        text_area.anchor_point = (0.5, 0.5)
+        text_area.anchor_point = (0.5, 0.7)
         text_area.anchored_position = (DISPLAY_WIDTH // 2, DISPLAY_HEIGHT // 2)
 
         welcome_group = displayio.Group()
@@ -936,6 +936,10 @@ class FanoeTesterApp:
 
     def _render(self):
         top_text, bottom_text, highlight_pos = self.navigator.render_state()
+        # Ha épp a FÁNOE BE/KI MÉRÉS leaf screen-en állunk, felülírjuk a felső sort a dinamikus időkkel
+        item = self.navigator.current_item()
+        if self.navigator.in_leaf_screen and item.get("action") == "start_measurement_cycle":
+            top_text = f" {self._t_elo_ms} ▶ {self._t_bent_ms} ▶ {self._t_uto_ms} ms"
         self.display.show_pair(top_text, bottom_text, highlight_pos)
 
     def _dispatch_action(self, item):
@@ -1419,14 +1423,18 @@ class FanoeTesterApp:
                             self._backlight_duty = save_val
                             self.display.set_operating_backlight(self._backlight_duty)
 
-                        # Vizuális visszajelzés a mentésről - NEM blokkoló: a "Sikeres/
-                        # Sikertelen mentés" üzenet 0.8s-ig látszik, a run() ciklus eleji
-                        # _save_msg_until blokk zárja le (lásd lent), time.sleep() nélkül.
-                        top_text, _ = self.navigator.current_item()["screen"]
-                        save_msg = " Sikeres mentés" if success else " Sikertelen mentés"
-                        self.display.show_pair(top_text, save_msg, None)
-                        self._save_msg_until = time.monotonic() + 0.8
+                        # Vizuális visszajelzés a mentésről - a "Sikeres/Sikertelen mentés"
+                        # üzenet 0.8s-ig látszik, a run() ciklus eleji
+                        # _save_msg_until blokk zárja le
+                        if success:
+                            top_text, bottom_text = format_message("save_ok") # pl. ("Sikeres mentés", "")
+                        else:
+                            top_text, bottom_text = format_message("save_fail") # pl. ("Nem menthető", "Fejlesztői módban")
+                            
+                        self.display.show_pair(top_text, bottom_text, None)
+                        self._save_msg_until = time.monotonic() + 1.1
                         continue
+ 
                     elif self.navigator.in_leaf_screen:
                         confirmed_item = self.navigator.confirm_action(key_name)
                         if confirmed_item is not None:
