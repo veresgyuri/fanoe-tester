@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v96" # Fényerő állítás (9 diszkrét lépcső, élő előnézettel)
+VERSION = "0v97" # Hibajavitas: stale setting-key hosszu ESC utan, blokkolo sleep a mentesnel, fenyero-elonezet visszaallitasa
 
 
 def dprint(*args, **kwargs) -> None:
@@ -902,6 +902,7 @@ class FanoeTesterApp:
         self._cycle_last_update = 0
         self._suppress_next_esc_release = False  # ciklus-megszakítás utáni ESC-felengedés elnyelése
         self._root_bump_until = 0  # 0 = inaktív; monotonic timestamp, ameddig villog
+        self._save_msg_until = 0  # 0 = inaktív; monotonic timestamp, ameddig a mentés-üzenet látszik
         
         # --- Szerkesztési állapottartók ---
         self._active_setting_key = None
@@ -1122,7 +1123,7 @@ class FanoeTesterApp:
             self._active_setting_val = self._r_ell_ohm
 
         top_text, _ = item["screen"]
-        self.display.show_pair(top_text, f"   {self._active_setting_val} {self._active_setting_unit}", None)
+        self.display.show_pair(top_text, f" {self._active_setting_val} {self._active_setting_unit} [{self._active_setting_min}-{self._active_setting_max}]", None)
         dprint(f"Szerkesztő indítva: {self._active_setting_key} = {self._active_setting_val}")
         return True
 
@@ -1141,7 +1142,7 @@ class FanoeTesterApp:
 
         top_text, _ = self.navigator.current_item()["screen"]
         # Megjelenítés: "9 / [index+1]" (1-től 9-ig számozva a usernek)
-        self.display.show_pair(top_text, f"   9 / {self._backlight_index + 1}", None)
+        self.display.show_pair(top_text, f"   9 / {self._backlight_index + 1}    [1-9]", None)
         dprint(f"Fényerő szerkesztő indítva: index={self._backlight_index}, duty={BACKLIGHT_LEVELS[self._backlight_index]}")
         return True
 
@@ -1243,6 +1244,9 @@ class FanoeTesterApp:
     def _cleanup_active_modes(self):
         """Minden folyamatos/speciális almenü-mód takarítása egy helyen -
         bővíthető, ha később újabb ilyen mód készül."""
+        if self._active_setting_key == "BACKLIGHT_DUTY":
+            self.display.set_operating_backlight(self._backlight_duty)  # élő előnézet visszavonása
+        self._active_setting_key = None
         self._cleanup_manual_hold()
         self._cleanup_ohm_meter()
         self._cleanup_measurement_cycle()
@@ -1251,7 +1255,7 @@ class FanoeTesterApp:
         """LEFT vagy rövid ESC közös kezelése: ha volt tényleges lépés,
         normál render; ha már a gyökérszinten voltunk (no-op), egy rövid
         villanás jelzi ezt a usernek, majd magától visszavált."""
-        self._active_setting_key = None  # Szerkesztési állapot törlése balra lépéskor
+        #self._active_setting_key = None  # Szerkesztési állapot törlése balra lépéskor
         moved = self.navigator.go_left()
         self._cleanup_active_modes()
         if moved:
@@ -1336,6 +1340,12 @@ class FanoeTesterApp:
                 self._root_bump_until = 0
                 self._render()
 
+            if self._save_msg_until and time.monotonic() >= self._save_msg_until:
+                self._save_msg_until = 0
+                self._cleanup_active_modes()
+                self.navigator.go_left()
+                self._render()
+
             if not event:
                 continue
 
@@ -1409,16 +1419,13 @@ class FanoeTesterApp:
                             self._backlight_duty = save_val
                             self.display.set_operating_backlight(self._backlight_duty)
 
-                        # Vizuális visszajelzés a mentésről
+                        # Vizuális visszajelzés a mentésről - NEM blokkoló: a "Sikeres/
+                        # Sikertelen mentés" üzenet 0.8s-ig látszik, a run() ciklus eleji
+                        # _save_msg_until blokk zárja le (lásd lent), time.sleep() nélkül.
                         top_text, _ = self.navigator.current_item()["screen"]
-                        save_msg = "Sikeres mentés" if success else "Sikertelen mentés"
+                        save_msg = " Sikeres mentés" if success else " Sikertelen mentés"
                         self.display.show_pair(top_text, save_msg, None)
-                        time.sleep(0.8)
-                        
-                        # Kilépés a szerkesztő nézetből
-                        self._active_setting_key = None
-                        self.navigator.go_left()
-                        self._render()
+                        self._save_msg_until = time.monotonic() + 0.8
                         continue
                     elif self.navigator.in_leaf_screen:
                         confirmed_item = self.navigator.confirm_action(key_name)
@@ -1457,11 +1464,11 @@ class FanoeTesterApp:
                             self._backlight_index = min(len(BACKLIGHT_LEVELS) - 1, self._backlight_index + 1)
                             # Élő előnézet (live preview)
                             self.display.set_operating_backlight(BACKLIGHT_LEVELS[self._backlight_index])
-                            self.display.show_pair(top_text, f"   9 / {self._backlight_index + 1}", None)
+                            self.display.show_pair(top_text, f"   9 / {self._backlight_index + 1}    [1-9]", None)
                             dprint(f"Fényerő index növelve: {self._backlight_index}")
                         else:
                             self._active_setting_val = min(self._active_setting_max, self._active_setting_val + self._active_setting_step)
-                            self.display.show_pair(top_text, f"   {self._active_setting_val} {self._active_setting_unit}", None)
+                            self.display.show_pair(top_text, f" {self._active_setting_val} {self._active_setting_unit}   [{self._active_setting_min}-{self._active_setting_max}]", None)
                             dprint(f"Ertek novelve: {self._active_setting_val}")
                     elif not self.navigator.in_leaf_screen:
                         self.navigator.move_updown(-1)
@@ -1474,11 +1481,11 @@ class FanoeTesterApp:
                             self._backlight_index = max(0, self._backlight_index - 1)
                             # Élő előnézet (live preview)
                             self.display.set_operating_backlight(BACKLIGHT_LEVELS[self._backlight_index])
-                            self.display.show_pair(top_text, f"   9 / {self._backlight_index + 1}", None)
+                            self.display.show_pair(top_text, f"   9 / {self._backlight_index + 1}    [1-9]", None)
                             dprint(f"Fényerő index csökkentve: {self._backlight_index}")
                         else:
                             self._active_setting_val = max(self._active_setting_min, self._active_setting_val - self._active_setting_step)
-                            self.display.show_pair(top_text, f"   {self._active_setting_val} {self._active_setting_unit}", None)
+                            self.display.show_pair(top_text, f" {self._active_setting_val} {self._active_setting_unit}   [{self._active_setting_min}-{self._active_setting_max}]", None)
                             dprint(f"Ertek csokkentve: {self._active_setting_val}")
                     elif not self.navigator.in_leaf_screen:
                         self.navigator.move_updown(1)
