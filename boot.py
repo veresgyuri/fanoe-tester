@@ -6,6 +6,10 @@
 # - Hozzáadva: CPU órajel csökkentése (energiatakarékosság/hőmérséklet optimalizálás)
 # - Hozzáadva: USB meghajtó írási jogának hardveres (kapcsolós) vezérlése
 #
+# ver 1.3 -- 2026.08.11.
+# - Hozzáadva: Wi-Fi letiltás
+# - Hozzáadva: Bluetooth letiltva
+#
 # GPIO39 ----- kapcsoló ----- GND
 #
 # Indulási mód kiválasztása kapcsolóval.
@@ -119,9 +123,8 @@ print("\n--- BOOT.PY INDUL ---")
 try:
     # Órajel beállítása (240MHz helyett 160MHz)
     microcontroller.cpu.frequency = 160000000
-    #  microcontroller.cpu.frequency = 80000000
-    
-    # Visszaolvassuk és átváltjuk MHz-re a kiíratáshoz
+    # microcontroller.cpu.frequency = 80000000
+    # visszaolvassuk és átváltjuk MHz-re a kiíratáshoz
     freq_mhz = microcontroller.cpu.frequency // 1000000
     print(f"[OK] CPU órajel beállítva: {freq_mhz} MHz")
 except Exception as e:
@@ -148,6 +151,24 @@ else:
     print("[MÓD] Fejlesztői mód:")
     print("      - USB meghajtó engedélyezve")
     print("      - Fájlírás a code.py számára TILTVA")
+
+# ==========================================
+# 3. WiFi és Bluetooth letiltása (nem használt rádiók, energiatakarékosság)
+# ==========================================
+try:
+    import wifi
+    wifi.radio.enabled = False
+    print("[OK] WiFi radio letiltva")
+except Exception as e:
+    print(f"[HIBA] WiFi letiltasa sikertelen: {e}")
+
+try:
+    import _bleio
+    _bleio.adapter.enabled = False
+    print("[OK] Bluetooth adapter letiltva")
+except Exception as e:
+    print(f"[HIBA] Bluetooth letiltasa sikertelen: {e}")
+
 
 # A láb felszabadítása `code.py` számára
 switch.deinit()
