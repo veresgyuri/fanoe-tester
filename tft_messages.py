@@ -51,7 +51,7 @@ TFT_MESSAGES = {
 
     # --- Ohm-mérő mód (folyamatosan frissülő, IO14) ---
     "ohm_meter_high": " > 500 Ω",
-    "ohm_meter_open": " - - -",
+    "ohm_meter_open": " - - -  szakadás",
 
     # --- Beállítás-mentés visszajelzése (settings.toml) ---
     "save_ok": (" RAM-ba mentve +", " sikeres flash írás"),

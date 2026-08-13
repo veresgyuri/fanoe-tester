@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v98" # Ciklus indító képernyő felső sorában aktuális idősor megjelenítése
+VERSION = "0v98 " # Ciklus indító képernyő felső sorában aktuális idősor megjelenítése
 
 
 def dprint(*args, **kwargs) -> None:
@@ -435,9 +435,18 @@ class OhmMeter:
     R_fanoe = ref_ohms * V_adc / (V_ref - V_adc). start()/stop() között
     foglalja/engedi el az ADC pint. read_ohms() egy nyers mintát vesz,
     egy rövid mozgóátlaggal simítja, és a simított értéket adja vissza -
-    vagy None-t, ha a kör gyakorlatilag szakadt (ADC a tápfeszültségen)."""
+    vagy None-t, ha a kör gyakorlatilag szakadt (ADC a tápfeszültségen).
+    Megjegyzés: hardveres felhúzó ellenállás NINCS beépítve az IO14-en,
+    ezért teljesen nyitott R_fanoe esetén a csomópont NEM a v_ref közelébe
+    lebeg (ahogy az OPEN_CIRCUIT_MARGIN_V-alapú ellenőrzés feltételezné),
+    hanem egy köztes, board-függő szintre - ezen a panelen empirikusan
+    ~1.70V / raw ADC ~33838 körül, stabilan. A FLOATING_RAW_* ablak ezt a
+    konkrét jelenséget fogja el. Ha a hardver később felhúzó ellenállást
+    kap, ez az ablak felülvizsgálandó/törölhető."""
 
-    OPEN_CIRCUIT_MARGIN_V = 0.01
+    OPEN_CIRCUIT_MARGIN_V = 0.5
+    FLOATING_RAW_CENTER = 33838
+    FLOATING_RAW_TOLERANCE = 500  # +/- ADC count
 
     def __init__(self, pin, ref_ohms, sample_count):
         self._pin = pin
@@ -459,10 +468,16 @@ class OhmMeter:
 
     def read_ohms(self):
         v_ref = self._adc.reference_voltage
-        v_adc = (self._adc.value / 65535) * v_ref
-        if v_ref - v_adc < self.OPEN_CIRCUIT_MARGIN_V:
+        raw = self._adc.value
+        v_adc = (raw / 65535) * v_ref
+
+        is_near_vref = (v_ref - v_adc) < self.OPEN_CIRCUIT_MARGIN_V
+        is_floating = abs(raw - self.FLOATING_RAW_CENTER) <= self.FLOATING_RAW_TOLERANCE
+
+        if is_near_vref or is_floating:
             self._samples = []
             return None
+
         raw_ohms = self._ref_ohms * v_adc / (v_ref - v_adc)
         self._samples.append(raw_ohms)
         if len(self._samples) > self._sample_count:
