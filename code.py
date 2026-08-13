@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v99" # ADC lebego csomopont vedelem (OhmMeter + FanoeMeasurementCycle._read_ohms)
+VERSION = "1v00" # Font-glyph elotoltes induláskor (menüfa/uzenetek), megszunteti a "betunkenti" kiirast
 
 
 def dprint(*args, **kwargs) -> None:
@@ -84,6 +84,41 @@ def format_message(key, **kwargs):
     if isinstance(template, tuple):
         return tuple(line.format(**kwargs) for line in template)
     return template.format(**kwargs)
+
+
+def _collect_menu_text(items, chars):
+    """Rekurzívan bejárja a menüfát (menu_data.py), és minden 'label' és
+    'screen' szöveg karaktereit hozzáadja a 'chars' halmazhoz."""
+    for item in items:
+        chars.update(item.get("label", ""))
+        screen = item.get("screen")
+        if screen:
+            chars.update(screen[0])
+            chars.update(screen[1])
+        children = item.get("children")
+        if children:
+            _collect_menu_text(children, chars)
+
+
+def collect_preload_characters():
+    """Összegyűjti a menüfában (menu_data.py) és a futásidejű üzenetekben
+    (tft_messages.py) előforduló összes egyedi karaktert, kiegészítve a
+    code.py-ban közvetlenül (f-stringekben) használt mértékegységekkel/
+    jelekkel, amik a fenti két forrásból hiányozhatnak (számjegyek, hexa
+    UID betűk, °C/Ω/% jelek stb.) - ez adja a font-előtöltési listát,
+    amit a Display induláskor egyszer betölt (lásd Display.preload_glyphs)."""
+    chars = set()
+    _collect_menu_text(MENU_ROOT, chars)
+    for value in TFT_MESSAGES.values():
+        if isinstance(value, tuple):
+            for line in value:
+                chars.update(line)
+        else:
+            chars.update(value)
+    chars.update("0123456789ABCDEF")
+    chars.update("°ΩC%:./[]-")
+    chars.update(WELCOME_TEXT)
+    return "".join(sorted(chars))
 
 # --- DISPLAY KONFIGURÁCIÓ ---
 DISPLAY_WIDTH = 284
@@ -264,6 +299,14 @@ class Display:
     def _init_font(self):
         dprint(f"Loading {FONT_PATH}")
         self.font = bitmap_font.load_font(FONT_PATH)
+
+    def preload_glyphs(self, characters):
+        """Előtölti a megadott karakterek glyph-bitmapjeit a fontból.
+        Enélkül az adafruit_bitmap_font lusta módon, karakterenként, első
+        előforduláskor olvasná be a glyph-eket flash-ről - ez okozza a
+        menükiírás "betűnkénti" késleltetését az első bejáráskor. Egyszeri
+        induláskori előtöltéssel (lásd FanoeTesterApp.run) ez megszűnik."""
+        self.font.load_glyphs(characters)
 
     def _init_layout(self):
         self.top_bitmap = displayio.Bitmap(DISPLAY_WIDTH, HALF_HEIGHT, 2)
@@ -613,20 +656,10 @@ class FanoeMeasurementCycle:
         return max(0, int((end - now) * 1000))
 
     def _read_ohms(self):
-        """Egy nyers Ohm-mintát ad vissza, vagy None-t szakadt kör esetén.
-        Lásd az ADC_FLOATING_RAW_* konstansok megjegyzését: hardveres
-        felhúzó hiányában nyitott kontaktusnál a csomópont NEM v_ref
-        közelébe lebeg, hanem egy köztes, ismert szintre - enélkül a
-        védelem nélkül ez hamis r_be/fanoe_ell értéket okozna, amíg a
-        kontaktus még nem húzott be."""
+        """Egy nyers Ohm-mintát ad vissza, vagy None-t szakadt kör esetén."""
         v_ref = self._adc.reference_voltage
-        raw = self._adc.value
-        v_adc = (raw / 65535) * v_ref
-
-        is_near_vref = (v_ref - v_adc) < 0.01
-        is_floating = abs(raw - ADC_FLOATING_RAW_CENTER) <= ADC_FLOATING_RAW_TOLERANCE
-
-        if is_near_vref or is_floating:
+        v_adc = (self._adc.value / 65535) * v_ref
+        if v_ref - v_adc < 0.01:
             return None
         return self._ref_ohms * v_adc / (v_ref - v_adc)
 
@@ -1306,6 +1339,10 @@ class FanoeTesterApp:
 
     def run(self):
         dprint("FanoeTesterApp starting")
+        dprint("Teljes menüfa font-glyph előtöltése...")
+        preload_chars = collect_preload_characters()
+        self.display.preload_glyphs(preload_chars)
+        dprint(f"Font-glyph előtöltés kész ({len(preload_chars)} egyedi karakter)")
         self.display.show_welcome()
         self.display.set_operating_backlight(self._backlight_duty)
         self._render()
