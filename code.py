@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "1v00" # Font-glyph elotoltes induláskor (menüfa/uzenetek), megszunteti a "betunkenti" kiirast
+VERSION = "1v01" # fanoe_ell zarolas leválasztva az IO6-rol, T_BENT kezdetehez (IO7 ON) horgonyozva
 
 
 def dprint(*args, **kwargs) -> None:
@@ -566,6 +566,7 @@ class FanoeMeasurementCycle:
         self._cycle_start = None
         self._t_elo_end = None
         self._t_bent_end = None
+        self._t_bent_start = None  # T_BENT kezdete (IO7 ON pillanata) - fanoe_ell T_SETTLE_S-ablakának horgonya, FÜGGETLENÜL az IO6-tól
         self._cycle_end = None
         self._last_adc_sample_time = 0
         self._ohm_samples = []
@@ -671,9 +672,12 @@ class FanoeMeasurementCycle:
             self._ohm_samples = []
             return
 
-        # fanoe_ell zárolás: T_SETTLE_S a fanoe_be_time után, 3 stabil minta
-        if (not self.fanoe_ell_locked and self.fanoe_be_time is not None
-                and now - self.fanoe_be_time >= T_SETTLE_S):
+        # fanoe_ell zárolás: T_SETTLE_S a T_BENT kezdete (IO7 ON) után, 3 stabil
+        # minta - SZÁNDÉKOSAN független az IO6 kontaktustól, ne a fanoe_be_time-hoz
+        # kössük, mert az ellenállásmérésnek a kontakt-logikától elkülönítve kell
+        # futnia (lásd fanoe_tester_logic.md 2. elvi szabálya).
+        if (not self.fanoe_ell_locked and self._t_bent_start is not None
+                and now - self._t_bent_start >= T_SETTLE_S):
             self._ohm_samples.append(ohms)
             if len(self._ohm_samples) > 3:
                 self._ohm_samples.pop(0)
@@ -744,6 +748,7 @@ class FanoeMeasurementCycle:
             if now >= self._t_elo_end:
                 self.state = self.STATE_T_BENT
                 self._relay.on()
+                self._t_bent_start = now
                 self._t_bent_end = now + self.t_bent_ms / 1000
                 self._last_adc_sample_time = now
                 dprint("FanoeMeasurementCycle: T_BENT, IO7 ON")
