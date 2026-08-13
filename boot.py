@@ -9,8 +9,10 @@
 # ver 1.3 -- 2026.08.11.
 # - Hozzáadva: Wi-Fi letiltás
 # - Hozzáadva: Bluetooth letiltva
+
+# ver 1.4 -- 2026.08.13 GPIO39 nem működött IO21-re átállva
 #
-# GPIO39 ----- kapcsoló ----- GND
+# GPIO21 ----- kapcsoló ----- GND
 #
 # Indulási mód kiválasztása kapcsolóval.
 #
@@ -19,7 +21,7 @@
 # - CIRCUITPY USB-meghajtó engedélyezve
 # - a számítógép írhatja a fájlrendszert
 #
-# Kapcsoló zárva, GPIO39 a GND-re kötve:
+# Kapcsoló zárva, GPIO21 a GND-re kötve:
 # - felhasználói mód
 # - CIRCUITPY USB-meghajtó letiltva
 # - a CircuitPython-program írhatja a fájlrendszert
@@ -37,7 +39,7 @@
 #                  |      boot.py     |
 #                  +---------+--------+
 #                            |
-#          IO39 olvasás: switch.value (HIGH/LOW)
+#          IO21 olvasás: switch.value (HIGH/LOW)
 #                            |
 #          +-----------------+-------------------+
 #          |                                     |
@@ -59,7 +61,7 @@
 #               |                                |
 #               +----------------+---------------+
 #                                |
-#             switch.deinit()  IO39 felszabadítása
+#             switch.deinit()  IO21 felszabadítása
 #                                |
 #                      +---------v-------------+
 #                      | USB meghajtó állapota |
@@ -108,7 +110,6 @@
 # |                                                               |
 # +---------------------------------------------------------------+
 
-# ver 1.2 -- 2026.08.01 Gemini3 flash (működési freki/órajel fix beállítás a boot során
 
 import board
 import digitalio
@@ -133,8 +134,8 @@ except Exception as e:
 # ==========================================
 # 2. USB / Fájlrendszer írási jogok beállítása
 # ==========================================
-# Válassz egy szabad GPIO lábat a kapcsolónak.
-SWITCH_PIN = board.IO39
+# Válassz egy szabad GPIO lábat a kapcsolónak - IO39 nem jó!
+SWITCH_PIN = board.IO21
 
 # A kiválasztott láb beállítása bemenetként, belső felhúzó ellenállással.
 switch = digitalio.DigitalInOut(SWITCH_PIN)

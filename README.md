@@ -91,7 +91,7 @@ A VsCode 1.13x.x főként a szöveges szerkesztésben és a verzió követésben
 
 ## Üzemmódok
 
-A bootfázisban a GPIO39-es kapcsoló állapota alapján dönt a rendszer:
+A bootfázisban a GPIO21-es kapcsoló állapota alapján dönt a rendszer:
 - felhasználói mód: az USB meghajtó inaktív, a program számára engedélyezett a fájlírás
 - fejlesztői mód: az USB meghajtó aktív, ami a fejlesztéshez hasznos
 

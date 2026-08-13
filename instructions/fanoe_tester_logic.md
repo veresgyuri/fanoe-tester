@@ -75,7 +75,7 @@ PullUp resistors          REPL
                  |      boot.py     |
                  +---------+--------+
                            |
-         GPIO39 olvasás: switch.value (HIGH/LOW)
+         GPIO21 olvasás: switch.value (HIGH/LOW)
                            |
          +-----------------+-------------------+
          |                                     |
@@ -97,7 +97,7 @@ PullUp resistors          REPL
               |                                |
               +----------------+---------------+
                                |
-            switch.deinit()  GPIO39 felszabadítása
+            switch.deinit()  GPIO21 felszabadítása
                                |
                      +---------v-------------+
                      | USB meghajtó állapota |
