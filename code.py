@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "0v98 " # Ciklus indító képernyő felső sorában aktuális idősor megjelenítése
+VERSION = "0v99" # ADC lebego csomopont vedelem (OhmMeter + FanoeMeasurementCycle._read_ohms)
 
 
 def dprint(*args, **kwargs) -> None:
@@ -136,6 +136,18 @@ OHM_METER_MAX_OHMS = 500
 OHM_METER_SAMPLE_COUNT = 3  # egyszerű mozgóátlag a simításhoz
 OHM_METER_UPDATE_INTERVAL = 0.1  # 100ms - lásd ADC_SAMPLE_INTERVAL_MS a logic.md-ben
 OHM_METER_REPL_INTERVAL = 2.0  # REPL-re csak 2 mp-enként írunk
+
+# --- ADC "lebegő csomópont" workaround (nincs hardveres felhúzó IO14-en) ---
+# Teljesen nyitott R_fanoe esetén az IO14 csomópont NEM a v_ref közelébe
+# lebeg (ahogy egy sima v_ref-közelség alapú nyitott-kör ellenőrzés
+# feltételezné), hanem egy köztes, board-függő szintre - ezen a panelen
+# empirikusan ~1.70V / raw ADC ~33838 körül, stabilan (REPL-mérésekkel
+# igazolva, 2026-08). Az OhmMeter ÉS a FanoeMeasurementCycle is ugyanazt a
+# fizikai IO14 áramkört olvassa, ezért mindkettő ugyanezt az ablakot
+# használja. Ha a hardver később felhúzó ellenállást kap IO14-en, ez az
+# ablak felülvizsgálandó/törölhető.
+ADC_FLOATING_RAW_CENTER = 33838
+ADC_FLOATING_RAW_TOLERANCE = 500  # +/- ADC count
 
 # --- AUTOMATIKUS MÉRÉSI CIKLUS (FanoeMeasurementCycle, lásd fanoe_tester_logic.md) ---
 FANOE_CONTACT_PIN = board.IO6  # NO kontakt, feltételezett Pull.UP (zárva=LOW) - ellenőrizd!
@@ -435,18 +447,9 @@ class OhmMeter:
     R_fanoe = ref_ohms * V_adc / (V_ref - V_adc). start()/stop() között
     foglalja/engedi el az ADC pint. read_ohms() egy nyers mintát vesz,
     egy rövid mozgóátlaggal simítja, és a simított értéket adja vissza -
-    vagy None-t, ha a kör gyakorlatilag szakadt (ADC a tápfeszültségen).
-    Megjegyzés: hardveres felhúzó ellenállás NINCS beépítve az IO14-en,
-    ezért teljesen nyitott R_fanoe esetén a csomópont NEM a v_ref közelébe
-    lebeg (ahogy az OPEN_CIRCUIT_MARGIN_V-alapú ellenőrzés feltételezné),
-    hanem egy köztes, board-függő szintre - ezen a panelen empirikusan
-    ~1.70V / raw ADC ~33838 körül, stabilan. A FLOATING_RAW_* ablak ezt a
-    konkrét jelenséget fogja el. Ha a hardver később felhúzó ellenállást
-    kap, ez az ablak felülvizsgálandó/törölhető."""
+    vagy None-t, ha a kör gyakorlatilag szakadt (ADC a tápfeszültségen)."""
 
     OPEN_CIRCUIT_MARGIN_V = 0.5
-    FLOATING_RAW_CENTER = 33838
-    FLOATING_RAW_TOLERANCE = 500  # +/- ADC count
 
     def __init__(self, pin, ref_ohms, sample_count):
         self._pin = pin
@@ -472,7 +475,7 @@ class OhmMeter:
         v_adc = (raw / 65535) * v_ref
 
         is_near_vref = (v_ref - v_adc) < self.OPEN_CIRCUIT_MARGIN_V
-        is_floating = abs(raw - self.FLOATING_RAW_CENTER) <= self.FLOATING_RAW_TOLERANCE
+        is_floating = abs(raw - ADC_FLOATING_RAW_CENTER) <= ADC_FLOATING_RAW_TOLERANCE
 
         if is_near_vref or is_floating:
             self._samples = []
@@ -610,10 +613,20 @@ class FanoeMeasurementCycle:
         return max(0, int((end - now) * 1000))
 
     def _read_ohms(self):
-        """Egy nyers Ohm-mintát ad vissza, vagy None-t szakadt kör esetén."""
+        """Egy nyers Ohm-mintát ad vissza, vagy None-t szakadt kör esetén.
+        Lásd az ADC_FLOATING_RAW_* konstansok megjegyzését: hardveres
+        felhúzó hiányában nyitott kontaktusnál a csomópont NEM v_ref
+        közelébe lebeg, hanem egy köztes, ismert szintre - enélkül a
+        védelem nélkül ez hamis r_be/fanoe_ell értéket okozna, amíg a
+        kontaktus még nem húzott be."""
         v_ref = self._adc.reference_voltage
-        v_adc = (self._adc.value / 65535) * v_ref
-        if v_ref - v_adc < 0.01:
+        raw = self._adc.value
+        v_adc = (raw / 65535) * v_ref
+
+        is_near_vref = (v_ref - v_adc) < 0.01
+        is_floating = abs(raw - ADC_FLOATING_RAW_CENTER) <= ADC_FLOATING_RAW_TOLERANCE
+
+        if is_near_vref or is_floating:
             return None
         return self._ref_ohms * v_adc / (v_ref - v_adc)
 
