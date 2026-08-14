@@ -21,12 +21,12 @@ TFT_MESSAGES = {
     "result_t_be": " Kontakt BE: {value} ms",
     "result_t_ki": " Kontakt KI: {value} ms",
     "result_fanoe_ell": " Ellenállás: {value} Ω",
-    "result_r_be": " Ω küszöb BE: {value} ms",
-    "result_r_ki": " Ω küszöb KI: {value} ms",
+    "result_r_be": " Főág Ω BE ~ {value} ms",
+    "result_r_ki": " Főág Ω KI ~ {value} ms",
 
     # --- Hiányzó / speciális értékek a fenti sablonokba behelyettesítve ---
     "value_na": " N/A",
-    "value_szakadt": "szakadt",
+    "value_szakadt": " - - -",
 
     # --- Hibaüzenetek (kétsoros, önálló megállító képernyők) ---
     "err_premature_pullin": (" HIBA: váratlan", " behúzás előidő alatt"),
@@ -51,7 +51,7 @@ TFT_MESSAGES = {
 
     # --- Ohm-mérő mód (folyamatosan frissülő, IO14) ---
     "ohm_meter_high": " > 500 Ω",
-    "ohm_meter_open": " - - -  szakadás",
+    "ohm_meter_open": " - - -",
 
     # --- Beállítás-mentés visszajelzése (settings.toml) ---
     "save_ok": (" RAM-ba mentve +", " sikeres flash írás"),

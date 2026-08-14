@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "1v02" # Lebego IO14 csomopont kizarasa a meresi ciklus alatt is (130-180 Ohm sav)
+VERSION = "1v10" # Ohm-küszöb állítás kivéve a menüből, rögzített R_ELL_OHM, 1v10 verzió
 
 
 def dprint(*args, **kwargs) -> None:
@@ -686,6 +686,11 @@ class FanoeMeasurementCycle:
         if ohms is None:
             self.fanoe_szakadt = True
             self._ohm_samples = []
+            # Ha szakadt lett, és azelőtt még voltunk zárva (volt r_be), 
+            # de r_ki még nincs rögzítve, akkor a szakadás pillanata az r_ki!
+            if self.r_be_time is not None and self.r_ki_time is None and self.state == self.STATE_T_UTO:
+                self.r_ki_time = now
+                dprint(f"FanoeMeasurementCycle: r_ki (szakadás) @ {now - self._cycle_start:.3f}s")
             return
 
         # fanoe_ell zárolás: T_SETTLE_S a T_BENT kezdete (IO7 ON) után, 3 stabil
@@ -1205,8 +1210,6 @@ class FanoeTesterApp:
             self._active_setting_val = self._t_bent_ms
         elif self._active_setting_key == "T_UTO_MS":
             self._active_setting_val = self._t_uto_ms
-        elif self._active_setting_key == "R_ELL_OHM":
-            self._active_setting_val = self._r_ell_ohm
 
         top_text, _ = item["screen"]
         self.display.show_pair(top_text, f" {self._active_setting_val} {self._active_setting_unit} [{self._active_setting_min}-{self._active_setting_max}]", None)
@@ -1354,14 +1357,9 @@ class FanoeTesterApp:
             self._render()
         else:
             top_text, bottom_text = format_message("already_at_root")
-            self.display.set_line(
-                True, top_text, False,
-                bg_color=COLOR_BG_NORMAL, text_color=COLOR_BORDER_HIGHLIGHT,
-            )
-            self.display.set_line(
-                False, bottom_text, False,
-                bg_color=COLOR_BG_NORMAL, text_color=COLOR_BORDER_HIGHLIGHT,
-            )
+            self.display.show_pair(
+                top_text, bottom_text, None
+            ) # Javítva show_pair-re, mivel a "már a gyökérben vagyunk" kétsoros üzenet (tuple)
             self._root_bump_until = time.monotonic() + ROOT_BUMP_DURATION
 
     def run(self):
@@ -1508,9 +1506,6 @@ class FanoeTesterApp:
                         elif self._active_setting_key == "T_UTO_MS":
                             self._t_uto_ms = self._active_setting_val
                             self.measurement_cycle.t_uto_ms = self._t_uto_ms
-                        elif self._active_setting_key == "R_ELL_OHM":
-                            self._r_ell_ohm = self._active_setting_val
-                            self.measurement_cycle.r_ell_ohm = self._r_ell_ohm
                         elif self._active_setting_key == "BACKLIGHT_DUTY":
                             self._backlight_duty = save_val
                             self.display.set_operating_backlight(self._backlight_duty)
