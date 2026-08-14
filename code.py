@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "1v01" # fanoe_ell zarolas leválasztva az IO6-rol, T_BENT kezdetehez (IO7 ON) horgonyozva
+VERSION = "1v02" # Lebego IO14 csomopont kizarasa a meresi ciklus alatt is (130-180 Ohm sav)
 
 
 def dprint(*args, **kwargs) -> None:
@@ -183,6 +183,17 @@ OHM_METER_REPL_INTERVAL = 2.0  # REPL-re csak 2 mp-enként írunk
 # ablak felülvizsgálandó/törölhető.
 ADC_FLOATING_RAW_CENTER = 33838
 ADC_FLOATING_RAW_TOLERANCE = 500  # +/- ADC count
+
+# --- Lebegő IO14 csomópont kizárása a mérési ciklus alatt (ugyanaz a
+# hardveres ok, mint fent, de itt közvetlenül Ohm-ban kalibrálva, nem raw
+# ADC countban - a FÁNOE eszköznek csak két jellemző ellenállás-tartománya
+# van (gyártói szórással kb. 90-110 Ω és 180-220 Ω), a köztük lévő,
+# fizikailag nem előforduló sáv biztonságosan "szakadt"-nak tekinthető,
+# mert csak a lebegő álérték (~160 Ω) eshet bele. Szándékosan külön
+# konstans az OhmMeter-től, mert itt a valós mérési tartományok ismertek
+# és jóval szűkebb kizárási sáv is elég/pontosabb.
+CYCLE_FLOATING_OHM_MIN = 130
+CYCLE_FLOATING_OHM_MAX = 180
 
 # --- AUTOMATIKUS MÉRÉSI CIKLUS (FanoeMeasurementCycle, lásd fanoe_tester_logic.md) ---
 FANOE_CONTACT_PIN = board.IO6  # NO kontakt, feltételezett Pull.UP (zárva=LOW) - ellenőrizd!
@@ -441,13 +452,13 @@ class RelayControl:
     def __init__(self, pin):
         self._pin = digitalio.DigitalInOut(pin)
         self._pin.direction = digitalio.Direction.OUTPUT
-        self._pin.value = False
-
-    def on(self):
         self._pin.value = True
 
-    def off(self):
+    def on(self):
         self._pin.value = False
+
+    def off(self):
+        self._pin.value = True
 
 
 class StatusLed:
@@ -657,12 +668,17 @@ class FanoeMeasurementCycle:
         return max(0, int((end - now) * 1000))
 
     def _read_ohms(self):
-        """Egy nyers Ohm-mintát ad vissza, vagy None-t szakadt kör esetén."""
+        """Egy nyers Ohm-mintát ad vissza, vagy None-t szakadt kör esetén
+        (v_ref-közelség VAGY a lebegő csomópont ismert Ohm-sávja - lásd
+        CYCLE_FLOATING_OHM_MIN/MAX megjegyzését)."""
         v_ref = self._adc.reference_voltage
         v_adc = (self._adc.value / 65535) * v_ref
         if v_ref - v_adc < 0.01:
             return None
-        return self._ref_ohms * v_adc / (v_ref - v_adc)
+        ohms = self._ref_ohms * v_adc / (v_ref - v_adc)
+        if CYCLE_FLOATING_OHM_MIN <= ohms <= CYCLE_FLOATING_OHM_MAX:
+            return None
+        return ohms
 
     def _sample_ohms(self, now):
         ohms = self._read_ohms()
@@ -1270,10 +1286,16 @@ class FanoeTesterApp:
             t_ki_val = str(cyc.t_ki_ms) if cyc.t_ki_ms is not None else format_message("value_na")
             lines.append(format_message("result_t_ki", value=t_ki_val))
 
-            if cyc.fanoe_szakadt:
-                ell_val = format_message("value_szakadt")
-            elif cyc.fanoe_ell is not None:
+            # FONTOS: a sikeresen zárolt fanoe_ell mindig előbbre való, mint a
+            # fanoe_szakadt flag - utóbbi bármelyik mintavételnél True lehet
+            # (pl. T_UTO alatt, a kontaktus normál nyitásakor a kör újra
+            # lebegővé/nyitottá válik), és soha nem törlődik vissza. Ha már
+            # volt egy hiteles, 3 stabil mintából zárolt érték, azt egy
+            # KÉSŐBBI szakadás ne írja felül "szakadt"-tal.
+            if cyc.fanoe_ell is not None:
                 ell_val = f"{cyc.fanoe_ell:.1f}"
+            elif cyc.fanoe_szakadt:
+                ell_val = format_message("value_szakadt")
             else:
                 ell_val = format_message("value_na")
             lines.append(format_message("result_fanoe_ell", value=ell_val))

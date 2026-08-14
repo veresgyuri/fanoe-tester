@@ -26,7 +26,7 @@ TFT_MESSAGES = {
 
     # --- Hiányzó / speciális értékek a fenti sablonokba behelyettesítve ---
     "value_na": " N/A",
-    "value_szakadt": " szakadt",
+    "value_szakadt": "szakadt",
 
     # --- Hibaüzenetek (kétsoros, önálló megállító képernyők) ---
     "err_premature_pullin": (" HIBA: váratlan", " behúzás előidő alatt"),
