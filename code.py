@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "1v11" # Timestamp to manual ON (jó a BE mérési idő!)
+VERSION = "1v111" # Timestamp to manual ON (jó a BE mérési idő >200 ms-nél is!)
 
 
 def dprint(*args, **kwargs) -> None:
@@ -979,6 +979,7 @@ class FanoeTesterApp:
         self._manual_hold_active = False  # True, amíg a "FÁNOE KÉZI BE" leaf-en állunk
         self._manual_hold_pressed = False  # True, amíg ENTER lenyomva tartva
         self._manual_hold_start = None
+        self._manual_hold_start_ns = None
         self._manual_hold_last_update = 0
         self._manual_hold_contact = None  # IO6 DigitalInOut, csak a leaf aktív ideje alatt él
         self._manual_hold_pullin_ms = None  # None = még nem húzott be; -1 = alapból zárva volt; utána a behúzás (ms)
@@ -1463,9 +1464,10 @@ class FanoeTesterApp:
 
                 if self._manual_hold_active and key_name == "ENTER":
                     self._manual_hold_pressed = True
+                    self._manual_hold_pullin_ms = None
                     
                     # 1. Horgony rögzítése
-                    start_ns = time.monotonic_ns()
+                    self._manual_hold_start_ns = time.monotonic_ns()
                     self._manual_hold_start = time.monotonic()
                     self._manual_hold_last_update = self._manual_hold_start
                     
