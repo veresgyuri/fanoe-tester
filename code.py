@@ -1360,6 +1360,7 @@ class FanoeTesterApp:
             self.display.show_pair(
                 top_text, bottom_text, None
             ) # Javítva show_pair-re, mivel a "már a gyökérben vagyunk" kétsoros üzenet (tuple)
+            self.display.show_pair(top_text, bottom_text, 0)  # felső sor sárgán kiemelve
             self._root_bump_until = time.monotonic() + ROOT_BUMP_DURATION
 
     def run(self):
@@ -1396,7 +1397,7 @@ class FanoeTesterApp:
                         color = COLOR_TEXT_DANGER
                     else:
                         if self._manual_hold_pullin_ms is not None:
-                            text = f"  behúzott: {self._manual_hold_pullin_ms} ms"
+                            text = f"  behúzott: {self._manual_hold_pullin_ms:.1f} ms"
                             color = COLOR_TEXT_SUCCESS
                         else:
                             text = f"     {elapsed_ms} ms"
@@ -1487,7 +1488,7 @@ class FanoeTesterApp:
                                 contact_closed_ns = time.monotonic_ns()
                                 self._manual_hold_pullin_ms = (contact_closed_ns - relay_on_ns) / 1_000_000
                                 pulled = True
-                                dprint(f"DEBUG -> IO6 zárva! Delta: {self._manual_hold_pullin_ms:.3f} ms")
+                                dprint(f"DEBUG -> IO6 zárva! Delta: {self._manual_hold_pullin_ms:.1f} ms")
                                 break
                         
                         if not pulled:
