@@ -158,7 +158,6 @@ PullUp resistors          REPL
 |BEÁLLÍTÁSOK ▶       |FÁVA idő állítás ▶   |FÁVA holtidő ↑↓   ⏎  |     t_elo ms       |
 |                    |Bent idő állítás ▶   |FÁNOE bent idő ↑↓ ⏎  |     t_bent ms      |
 |                    |FÁNOE KI utóidő ▶    |KI utáni idő ↑↓   ⏎  |     t_uto ms       |
-|                    |Ohm érték állítás ▶  |alsó Ω érték ↑↓   ⏎  |     r_ell Ω        |
 |                    |Fényerő állítása ▶   |TFT fényerő  ↑↓   ⏎  |      9 / x         |
 ────────────────────────────────────────────────────────────  |       
 |INFORMÁCIÓK ⏎       |CPU frekvencia ->    |ESP32-S3 CPU órajel: |   {freq} MHz       |
@@ -201,13 +200,16 @@ IO14 - AnalogIn - FANOE belső ellenállásának mérése
 **Konfigurálható paraméterek (settings.toml, "Beállítások" menü alól):**  
 t_elo   [ms]   0-3000   - előkésleltetés a ciklus indítása és a relé behúzása között  
 t_bent  [ms]   500-7000 - amíg a relé be van kapcsolva (IO7 = ON)  
-t_uto   [ms]   500-5000 - utóidő a relé kikapcsolása és a ciklus vége között
-r_ell   [Ohm]  70-150, alapérték 70 - küszöbérték az r_be/r_ki éldetektáláshoz  
+t_uto   [ms]   500-5000 - utóidő a relé kikapcsolása és a ciklus vége között 
 
 **Fix, a kódban meghatározott (felhasználó által nem állítható) technikai konstansok:**  
 T_SETTLE_MS = 150 ms - a fanoe_be után ennyit várunk, mielőtt figyelnénk, hogy a fanoe_ell érték stabil-e  
 OHM_TOLERANCE  = 3 Ohm - a "stabil" (fanoe_ell zárolható) állapot Ohm-tűrése 3 egymást követő minta között  
 ADC_SAMPLE_INTERVAL_MS  = 100 ms - az ellenállás-mintavételezés periódusa  
+R_ELL_OHM = 80 Ohm - fixen rögzített küszöbérték az r_be/r_ki éldetektáláshoz (menüből eltávolítva)  
+ADC_FLOATING_RAW_CENTER = 33838 - Ohm-mérő mód lebegő IO14 nyitott-kör középérték (ADC count)  
+ADC_FLOATING_RAW_TOLERANCE = 500 - Ohm-mérő mód lebegési ablaka (+/- ADC count)  
+CYCLE_FLOATING_OHM_MIN = 130 Ω / MAX = 180 Ω - Mérési ciklus alatti lebegő sáv (szakadás szűréshez az r_ki-nél)  
 
 cycle_duration = t_elo + t_bent + t_uto  (MINDIG dinamikusan számolt érték, a mindenkori beállításokból)
 
@@ -264,7 +266,7 @@ IO7 = OFF azonnal (biztonsági lekapcsolás, függetlenül az aktuális állapot
            (korai elengedés hiba rögzítése, a ciklus nem áll le emiatt)
     - IO14: T_SETTLE_MS elteltével fanoe_be_time után figyeljük a stabilitást
             (lásd EVALUATE, fanoe_ell számítása)
-    - IO14: párhuzamosan, EGYMÁSTÓL FÜGGETLENÜL figyeljük az r_ell küszöb
+    - IO14: párhuzamosan, EGYMÁSTÓL FÜGGETLENÜL figyeljük az r_ell fix sávot
             ELSŐ átlépését fölfelé -> r_be_time rögzítve
             (ha nem történik meg, r_be = N/A, ez NEM hiba)
     - Kilépés:
@@ -277,7 +279,7 @@ IO7 = OFF azonnal (biztonsági lekapcsolás, függetlenül az aktuális állapot
            t_ki = fanoe_ki_time - relay_off_time
            Csak akkor adjunk ERROR_NO_DROPOUT jelzést, ha nem volt korai elengedés a T_BENT alatt,  
            és a ciklus végén a kontaktus még mindig zárt (beragadt).
-    - IO14: továbbra is fut; figyeljük az r_ell küszöb UTOLSÓ átlépését lefelé
+    - IO14: továbbra is fut; figyeljük az r_ell sávból való kilépést / szakadást (lebegő sáv elérése)
             -> r_ki_time rögzítve (ha nem történik meg, r_ki = N/A, NEM hiba)
     - Kilépés:
         - elapsed >= t_elo+t_bent+t_uto (= cycle_duration) -> EVALUATE
@@ -307,6 +309,7 @@ IO7 = OFF azonnal (biztonsági lekapcsolás, függetlenül az aktuális állapot
     - Kilépés:
         - felhasználó ESC -> vissza a főmenübe
 
+
 ### FANOE Mérési Ciklus Állapotmátrix és Hibavédelmi Táblázat
 
 | Ciklusfázis / Időtartam | Vezérlés (IO7) | Fizikai kontaktus (IO6) várt állapota | Analóg Ohm-mérés (IO14) állapota | Lehetséges rendellenes esemény (Edge Case) | Szoftveres reakció / Hibajelzés |
@@ -315,9 +318,9 @@ IO7 = OFF azonnal (biztonsági lekapcsolás, függetlenül az aktuális állapot
 | **T_ELO** <br>*(Előkésleltetés)* | `OFF` | **Nyitott** marad | Magas ellenállás | **Peremfeltétel 1:** T_ELO alatt a kontaktus véletlenül bezár, majd el is ejt. | **Ignorálás:** Mivel a szoftver csak a `T_BENT` fázistól kezdi el érdemben figyelni a behúzási éleket, ez nem rontja el a `t_be` mérést. |
 | **T_BENT** <br>*(Gerjesztési fázis)* | `ON` | **Záródnia kell** (IO6 átvált `LOW`-ra) | Stabil alacsony ellenállás (`< r_ell`, majd zárolódik `fanoe_ell`) | **A) Nem húz be időben:** T_BENT végéig nincs záró él. | **Hibajelzés:** `error_no_pullin` = `True`. A ciklus lefut végig, a RESULT listában: `HIBA: nem húzott be` és `t_be: N/A`. |
 | **T_BENT** <br>*(Gerjesztési fázis)* | `ON` | Zárt állapot fenntartása | Stabil ellenállás (`fanoe_ell` zárolva) | **B) Korai elengedés:** Beépül (`fanoe_be` rögzítve), de a T_BENT lejárta *előtt* kinyit az érintkező. | **Hibajelzés:** `error_premature_dropout` = `True`. A ciklus lefut végig, a RESULT listában: `HIBA: korai elengedés`. |
-| **T_BENT** <br>*(Gerjesztési fázis)* | `ON` | Zárt állapot | Az ellenállás az `r_ell` küszöb felett marad (`r_be_time` rögzítés) | **C) Érintkezési hiba / Magas átmeneti ellenállás:** Az IO6 zár, de az IO14-en mért ellenállás szakadást (`szakadt`) vagy magas értéket mutat. | **Mérés / Jelzés:** `fanoe_ell` = `szakadt` vagy valós magas érték. A ciklus lefut, a RESULT listában megjelenik a mért/szakadt érték (minősítést a kezelő végez). |
-| **T_UTO** <br>*(Utóidő / Elejtés)* | `OFF` | **Nyitnia kell** (IO6 átvált `HIGH`-ra) | Megemelkedik az ellenállás (`> r_ell`) | **A) Nem ejt el időben:** A ciklus végéig (T_UTO lejárta) nincs nyitó él. | **Hibajelzés:** `error_no_dropout` = `True`. A ciklus lefut végig, a RESULT listában: `HIBA: nem ejtett el` és `t_ki: N/A`. A korai elengedés (error_premature_dropout) után a T_UTO-beli no_dropout hiba szűrésre kerül, és a t_ki értéke N/A lesz.|
-| **T_UTO** <br>*(Utóidő / Elejtés)* | `OFF` | Nyitott állapot fenntartása | Magas ellenállás / Szakadt (`r_ki_time` rögzítés) | **B) Peremfeltétel 2:** Elejt, de T_UTO alatt még egyszer véletlenül bezár, majd újra kinyit. | **Ignorálás:** A szoftver az *első* érvényes nyitó élt rögzíti `fanoe_ki_time`-ként (`T_UTO` belépésétől számolva). A későbbi utólagos pattogások/zárások nem írják felül a már rögzített `t_ki` értéket. |
+| **T_BENT** <br>*(Gerjesztési fázis)* | `ON` | Zárt állapot | Az ellenállás a fix sáv felett marad (`r_be_time` rögzítés) | **C) Érintkezési hiba / Magas átmeneti ellenállás:** Az IO6 zár, de az IO14-en mért ellenállás szakadást (`szakadt`) vagy magas értéket mutat. | **Mérés / Jelzés:** `fanoe_ell` = `szakadt` vagy valós magas érték. A ciklus lefut, a RESULT listában megjelenik a mért/szakadt érték (minősítést a kezelő végez). |
+| **T_UTO** <br>*(Utóidő / Elejtés)* | `OFF` | **Nyitnia kell** (IO6 átvált `HIGH`-ra) | Megemelkedik az ellenállás / szakadássá válik (lebegő sáv) | **A) Nem ejt el időben:** A ciklus végéig (T_UTO lejárta) nincs nyitó él. | **Hibajelzés:** `error_no_dropout` = `True`. A ciklus lefut végig, a RESULT listában: `HIBA: nem ejtett el` és `t_ki: N/A`. A korai elengedés (error_premature_dropout) után a T_UTO-beli no_dropout hiba szűrésre kerül, és a t_ki értéke N/A lesz.|
+| **T_UTO** <br>*(Utóidő / Elejtés)* | `OFF` | Nyitott állapot fenntartása | Szakadás / lebegő sáv (`r_ki_time` rögzítés szakadásra) | **B) Peremfeltétel 2:** Elejt, de T_UTO alatt még egyszer véletlenül bezár, majd újra kinyit. | **Ignorálás:** A szoftver az *első* érvényes nyitó élt rögzíti `fanoe_ki_time`-ként (`T_UTO` belépésétől számolva). A későbbi utólagos pattogások/zárások nem írják felül a már rögzített `t_ki` értéket. |
 
 
 **Fontos elvi szabályok (CODE GENERATION LOGIC szempontjából is):**  
@@ -328,7 +331,7 @@ IO7 = OFF azonnal (biztonsági lekapcsolás, függetlenül az aktuális állapot
    FÜGGETLENÜL futnak. Egyik sem várja meg vagy blokkolja a másikat.
 3. Futás közbeni hibajelzés (ERROR_NO_PULLIN, ERROR_PREMATURE_DROPOUT, ERROR_NO_DROPOUT, "szakadt") sem állítja
    le a ciklust korábban - a mérés mindig a teljes cycle_duration-ig fut, utána jelentjük együtt az összes
-   történést/hiányzó adatot. Ez alól egyetlen kivétel van: ha indításkor a kontaktus már alapból zárt
+   történést/hiányzó adatot. Ez alól egyetlen kivétel van: ha indításkor a kontaktus már alapból zárva
    (ERROR_ALREADY_CLOSED). Ebben az esetben a relé meghúzása nélkül azonnal a RESULT állapotba lépünk a
    felesleges terhelés és a téves mérések elkerülése érdekében.
 4. r_be/r_ki KIZÁRÓLAG közelítő időbecslés (100ms mintavételi pontosság),
@@ -349,5 +352,5 @@ IO7 = OFF azonnal (biztonsági lekapcsolás, függetlenül az aktuális állapot
         0.40 - indítás előtti zárt állapot és korai elengedés kezelése (2026-08-04)
         0.50 - állapotmártix és hibakezelés táblázat hozzáadva
         0.52 - T_BENT alatti korai elengedés, hibaüzenet korrekció a T_UTO-ban (2026-08-06)
+        1.10 - Lebegő csomópont sávszűrés, r_ki rögzítés szakadásból (2026-08-14)
 
-"""
