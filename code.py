@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "1v14" # Kezi BE: vedett, validalt busy-wait visszahozva (izolalt meressel bizonyitott pontossag)
+VERSION = "1v16" # t_be/t_ki/r_be/r_ki: valos relay.on()/off() pillanathoz horgonyozva (_t_bent_start/_t_uto_start), nem a nominal celidohoz
 
 
 def dprint(*args, **kwargs) -> None:
@@ -172,7 +172,16 @@ MANUAL_HOLD_UPDATE_INTERVAL = 0.05  # ms-szamlalo frissitesi gyakorisaga
 # SZÁNDÉKOSAN kivétel a projekt "no blocking loop" szabálya alól - egyetlen,
 # jól körülhatárolt, felhasználó által tudatosan vállalt esetre korlátozva.
 MANUAL_HOLD_POLL_INTERVAL_S = 0.0005  # 500 µs - validált mintavételi időköz
-MANUAL_HOLD_PULLIN_TIMEOUT_S = 0.5  # 200 ms biztonsági háló, ha nem húz be
+MANUAL_HOLD_PULLIN_TIMEOUT_S = 0.5  # 500 ms biztonsági háló, ha nem húz be
+
+# --- Automatikus ciklus (FanoeMeasurementCycle) IO6 él-detektálási ablaka -
+# a MANUAL_HOLD_* mintája alapján, DE szándékosan rövidebb timeout-tal, mert
+# itt a fő ciklusnak (ESC azonnali megszakítás, 100ms-es Ohm-mintavételezés)
+# nem szabad érdemben késnie. A validált ~5.5ms/~4.0ms fizikai idő fölött
+# így is bőséges (~5x) tartalékot ad, anélkül hogy az ESC-válaszidőt vagy az
+# Ohm-küszöb mérés pontosságát kockáztatná.
+CYCLE_CONTACT_POLL_INTERVAL_S = 0.0005  # 500 µs - ugyanaz a validált mintavétel
+CYCLE_CONTACT_TIMEOUT_S = 0.03  # 30 ms védett ablak (rövidebb, mint a Kézi BE-nél)
 
 # --- OHM-MÉRŐ MÓD (folyamatos ellenállásmérés, IO14) ---
 OHM_METER_PIN = board.IO14
@@ -588,6 +597,7 @@ class FanoeMeasurementCycle:
         self._t_elo_end = None
         self._t_bent_end = None
         self._t_bent_start = None  # T_BENT kezdete (IO7 ON pillanata) - fanoe_ell T_SETTLE_S-ablakának horgonya, FÜGGETLENÜL az IO6-tól
+        self._t_uto_start = None  # T_UTO kezdete (IO7 OFF pillanata) - t_ki_ms/r_ki_ms VALÓS horgonya, nem a nominál _t_bent_end cél
         self._cycle_end = None
         self._last_adc_sample_time = 0
         self._ohm_samples = []
@@ -738,14 +748,14 @@ class FanoeMeasurementCycle:
             self.t_ki_ms = None
         else:
             if self.fanoe_be_time is not None:
-                self.t_be_ms = int((self.fanoe_be_time - self._t_elo_end) * 1000)
+                self.t_be_ms = int((self.fanoe_be_time - self._t_bent_start) * 1000)
             if self.fanoe_ki_time is not None:
-                self.t_ki_ms = int((self.fanoe_ki_time - self._t_bent_end) * 1000)
+                self.t_ki_ms = int((self.fanoe_ki_time - self._t_uto_start) * 1000)
 
         if self.r_be_time is not None:
-            self.r_be_ms = int((self.r_be_time - self._t_elo_end) * 1000)
+            self.r_be_ms = int((self.r_be_time - self._t_bent_start) * 1000)
         if self.r_ki_time is not None:
-            self.r_ki_ms = int((self.r_ki_time - self._t_bent_end) * 1000)
+            self.r_ki_ms = int((self.r_ki_time - self._t_uto_start) * 1000)
             
         dprint(
             f"FanoeMeasurementCycle: EVALUATE t_be={self.t_be_ms} "
@@ -781,7 +791,21 @@ class FanoeMeasurementCycle:
                 self._relay.on()
                 self._t_bent_start = now
                 self._t_bent_end = now + self.t_bent_ms / 1000
-                self._last_adc_sample_time = now
+
+                # Rövid, védett ablak a fanoe_be pontos detektálásához (lásd
+                # CYCLE_CONTACT_* konstansok megjegyzését) - ha itt nem
+                # sikerül, a lenti T_BENT-ágban lévő normál, per-körös
+                # él-detektálás veszi át (kevésbé pontos, de biztos fallback).
+                timeout_ns = time.monotonic_ns() + int(CYCLE_CONTACT_TIMEOUT_S * 1_000_000_000)
+                while time.monotonic_ns() < timeout_ns:
+                    if self.contact_closed:
+                        self.fanoe_be_time = time.monotonic()
+                        dprint(f"FanoeMeasurementCycle: fanoe_be @ {self.fanoe_be_time - self._cycle_start:.3f}s (validalt meres)")
+                        break
+                    time.sleep(CYCLE_CONTACT_POLL_INTERVAL_S)
+                self._prev_contact_closed = self.contact_closed
+
+                self._last_adc_sample_time = time.monotonic()
                 dprint("FanoeMeasurementCycle: T_BENT, IO7 ON")
 
         elif self.state == self.STATE_T_BENT:
@@ -804,7 +828,24 @@ class FanoeMeasurementCycle:
                     dprint("FanoeMeasurementCycle: ERROR_NO_PULLIN")
                 self.state = self.STATE_T_UTO
                 self._relay.off()
+                self._t_uto_start = now
                 self._cycle_end = now + self.t_uto_ms / 1000
+
+                # Rövid, védett ablak a fanoe_ki pontos detektálásához - csak
+                # akkor van értelme várni, ha volt érvényes behúzás és nem
+                # volt korai elengedés (különben a kontaktus már úgyis
+                # nyitva van, nincs mit várni). Ha itt nem sikerül, a lenti
+                # T_UTO-ágban lévő normál él-detektálás veszi át (fallback).
+                if self.fanoe_be_time is not None and not self.error_premature_dropout:
+                    timeout_ns = time.monotonic_ns() + int(CYCLE_CONTACT_TIMEOUT_S * 1_000_000_000)
+                    while time.monotonic_ns() < timeout_ns:
+                        if not self.contact_closed:
+                            self.fanoe_ki_time = time.monotonic()
+                            dprint(f"FanoeMeasurementCycle: fanoe_ki @ {self.fanoe_ki_time - self._cycle_start:.3f}s (validalt meres)")
+                            break
+                        time.sleep(CYCLE_CONTACT_POLL_INTERVAL_S)
+                self._prev_contact_closed = self.contact_closed
+
                 dprint("FanoeMeasurementCycle: T_UTO, IO7 OFF")
 
         elif self.state == self.STATE_T_UTO:
