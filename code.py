@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "1v111" # Timestamp to manual ON (jó a BE mérési idő >200 ms-nél is!)
+VERSION = "1v14" # Kezi BE: vedett, validalt busy-wait visszahozva (izolalt meressel bizonyitott pontossag)
 
 
 def dprint(*args, **kwargs) -> None:
@@ -163,6 +163,16 @@ STATUS_LED_RED = (40, 0, 0)
 STATUS_LED_ORANGE = (40, 16, 0)
 STATUS_LED_YELLOW = (40, 40, 0)
 MANUAL_HOLD_UPDATE_INTERVAL = 0.05  # ms-szamlalo frissitesi gyakorisaga
+
+# --- IO6 él-detektálási pontosság (Kézi BE) - saját izolált méréssel (2026-08)
+# validálva: relé BE ~5.5ms, KI ~4.0ms, <0.15ms szórással, 500µs mintavétellel.
+# A fő run() ciklus egy körbefordulása ennél sokkal lassabb (keypad.poll() +
+# egyéb állapot-ellenőrzések összesített overhead-je), ezért a mérés
+# pontossága érdekében ez a rövid, korlátozott (timeout-tal védett) várakozás
+# SZÁNDÉKOSAN kivétel a projekt "no blocking loop" szabálya alól - egyetlen,
+# jól körülhatárolt, felhasználó által tudatosan vállalt esetre korlátozva.
+MANUAL_HOLD_POLL_INTERVAL_S = 0.0005  # 500 µs - validált mintavételi időköz
+MANUAL_HOLD_PULLIN_TIMEOUT_S = 0.5  # 200 ms biztonsági háló, ha nem húz be
 
 # --- OHM-MÉRŐ MÓD (folyamatos ellenállásmérés, IO14) ---
 OHM_METER_PIN = board.IO14
@@ -979,10 +989,11 @@ class FanoeTesterApp:
         self._manual_hold_active = False  # True, amíg a "FÁNOE KÉZI BE" leaf-en állunk
         self._manual_hold_pressed = False  # True, amíg ENTER lenyomva tartva
         self._manual_hold_start = None
-        self._manual_hold_start_ns = None
+        self._manual_hold_start_ns = 0  # time.monotonic_ns() horgony a nem-blokkoló IO6 él-detektáláshoz
         self._manual_hold_last_update = 0
         self._manual_hold_contact = None  # IO6 DigitalInOut, csak a leaf aktív ideje alatt él
         self._manual_hold_pullin_ms = None  # None = még nem húzott be; -1 = alapból zárva volt; utána a behúzás (ms)
+        self._manual_hold_cosmetics_shown = True  # True = nincs teendő; ENTER-nyomáskor False-ra vált
         self._ohm_meter_active = False  # True, amíg az "ELLENÁLLÁS MÉRÉS" leaf-en állunk
         self._ohm_meter_last_update = 0
         self._ohm_meter_last_repl = 0
@@ -1389,6 +1400,32 @@ class FanoeTesterApp:
                         self._manual_hold_pullin_ms = int(elapsed_s * 1000)
                         dprint(f"Kezi BE: behuzott @ {self._manual_hold_pullin_ms} ms")
 
+                # --- KOZMETIKA (LED, felső sor, debug print) - EGYSZER, az IO6-
+                # ellenőrzés UTÁN, hogy a kijelző/LED-írás (SPI/protokoll idő)
+                # ne torzítsa a fenti mérést. ---
+                if not self._manual_hold_cosmetics_shown:
+                    self._manual_hold_cosmetics_shown = True
+                    self.led.set_red()
+                    dprint("Vezérlő parancs kiadva - IO7")
+                    if self._manual_hold_pullin_ms == -1:
+                        dprint("Kezi BE HIBA: A kontaktus már indításkor zárva volt!")
+                    else:
+                        dprint(f"DEBUG -> Relé ON időbélyeg: {self._manual_hold_start_ns}")
+                    self.display.set_line(
+                        True, " BE parancs kiadva", False,
+                        bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_DANGER,
+                    )
+                    if self._manual_hold_pullin_ms == -1:
+                        self.display.set_line(
+                            False, "   [ ALAPBÓL ZÁRVA ]", False,
+                            bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_DANGER,
+                        )
+                    else:
+                        self.display.set_line(
+                            False, "     0 ms", False,
+                            bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_NORMAL,
+                        )
+
                 # --- TFT KIJELZŐ FRISSÍTÉSE RITKÁBBAN (50ms) ---
                 if now - self._manual_hold_last_update >= MANUAL_HOLD_UPDATE_INTERVAL:
                     elapsed_ms = int((now - self._manual_hold_start) * 1000)
@@ -1464,61 +1501,41 @@ class FanoeTesterApp:
 
                 if self._manual_hold_active and key_name == "ENTER":
                     self._manual_hold_pressed = True
-                    self._manual_hold_pullin_ms = None
-                    
-                    # 1. Horgony rögzítése
-                    self._manual_hold_start_ns = time.monotonic_ns()
                     self._manual_hold_start = time.monotonic()
                     self._manual_hold_last_update = self._manual_hold_start
-                    
+                    self._manual_hold_cosmetics_shown = False
+
                     initially_closed = not self._manual_hold_contact.value if self._manual_hold_contact else False
-                    
+
                     if initially_closed:
                         self._manual_hold_pullin_ms = -1
-                        dprint("Kezi BE HIBA: A kontaktus már indításkor zárva volt!")
                     else:
-                        # 2. AZONNALI RELÉ BEKAPCSOLÁS ÉS VÁRAKOZÁS (Mint az izolált tesztben!)
+                        # Horgony rögzítése, majd AZONNAL a relé.
+                        self._manual_hold_start_ns = time.monotonic_ns()
                         self.relay.on()
-                        relay_on_ns = time.monotonic_ns()
-                        dprint(f"DEBUG -> Relé ON időbélyeg: {relay_on_ns}")
-                        
-                        # Villámgyors belső hurok az IO6 válaszára (max 200ms timeout)
-                        pulled = False
-                        timeout_ns = relay_on_ns + 200_000_000
+
+                        # Rövid, timeout-tal védett várakozás, a saját izolált
+                        # méréssel validált 500µs-es mintavétellel (lásd a
+                        # MANUAL_HOLD_POLL_INTERVAL_S/PULLIN_TIMEOUT_S konstansok
+                        # megjegyzését) - a run() fő ciklusa ennél sokkal
+                        # lassabb granularitású lenne, torzítaná a mérést.
+                        pullin_detected = False
+                        timeout_ns = self._manual_hold_start_ns + int(MANUAL_HOLD_PULLIN_TIMEOUT_S * 1_000_000_000)
                         while time.monotonic_ns() < timeout_ns:
                             if not self._manual_hold_contact.value:
-                                contact_closed_ns = time.monotonic_ns()
-                                self._manual_hold_pullin_ms = (contact_closed_ns - relay_on_ns) / 1_000_000
-                                pulled = True
-                                dprint(f"DEBUG -> IO6 zárva! Delta: {self._manual_hold_pullin_ms:.1f} ms")
+                                now_ns = time.monotonic_ns()
+                                self._manual_hold_pullin_ms = (now_ns - self._manual_hold_start_ns) / 1_000_000
+                                pullin_detected = True
+                                dprint(f"Kezi BE: behuzott @ {self._manual_hold_pullin_ms:.3f} ms (validalt meres)")
                                 break
-                        
-                        if not pulled:
-                            self._manual_hold_pullin_ms = None
-                            dprint("DEBUG -> Timeout: IO6 nem zárt be!")
+                            time.sleep(MANUAL_HOLD_POLL_INTERVAL_S)
 
-                    self.led.set_red()
-                    dprint("Vezérlő parancs kiadva - IO7")
-                    
-                    self.display.set_line(
-                        True, " BE parancs kiadva", False,
-                        bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_DANGER,
-                    )
-                    
-                    if initially_closed:
-                        self.display.set_line(
-                            False, "   [ ALAPBÓL ZÁRVA ]", False,
-                            bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_DANGER,
-                        )
-                    else:
-                        if self._manual_hold_pullin_ms is not None and self._manual_hold_pullin_ms != -1:
-                            text = f"  behúzott: {self._manual_hold_pullin_ms:.1f} ms"
-                        else:
-                            text = "     0 ms"
-                        self.display.set_line(
-                            False, text, False,
-                            bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_NORMAL,
-                        )
+                        if not pullin_detected:
+                            # Nem sikerült a védett ablakban - a periodikus,
+                            # nem-blokkoló ellenőrzés (run() ciklus) tovább
+                            # próbálkozik, csak lassabb (kevésbé pontos) lesz.
+                            self._manual_hold_pullin_ms = None
+                            dprint("Kezi BE: timeout a vedett ablakban, folytatas a periodikus ellenorzessel")
                     continue
 
                 if key_name == "ENTER":
