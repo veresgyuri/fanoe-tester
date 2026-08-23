@@ -25,7 +25,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "1v16" # t_be/t_ki/r_be/r_ki: valos relay.on()/off() pillanathoz horgonyozva (_t_bent_start/_t_uto_start), nem a nominal celidohoz
+VERSION = "1v17" # RESULT lista: validalt (✓) / hozzavetoleges (~) jelzes t_be/t_ki mellett, TFT-n is lathato
 
 
 def dprint(*args, **kwargs) -> None:
@@ -117,6 +117,7 @@ def collect_preload_characters():
             chars.update(value)
     chars.update("0123456789ABCDEF")
     chars.update("°ΩC%:./[]-")
+    chars.update("✓~")  # RESULT lista: validált/hozzávetőleges jelölés
     chars.update(WELCOME_TEXT)
     return "".join(sorted(chars))
 
@@ -622,6 +623,8 @@ class FanoeMeasurementCycle:
         # EVALUATE eredménye, ms-ben/Ohm-ban, None ha nincs adat
         self.t_be_ms = None
         self.t_ki_ms = None
+        self.t_be_validated = False  # True = a védett (nanosec-pontos) ablakban sikerült; False = fallback (main-loop granularitás)
+        self.t_ki_validated = False
         self.r_be_ms = None
         self.r_ki_ms = None
 
@@ -800,6 +803,7 @@ class FanoeMeasurementCycle:
                 while time.monotonic_ns() < timeout_ns:
                     if self.contact_closed:
                         self.fanoe_be_time = time.monotonic()
+                        self.t_be_validated = True
                         dprint(f"FanoeMeasurementCycle: fanoe_be @ {self.fanoe_be_time - self._cycle_start:.3f}s (validalt meres)")
                         break
                     time.sleep(CYCLE_CONTACT_POLL_INTERVAL_S)
@@ -841,6 +845,7 @@ class FanoeMeasurementCycle:
                     while time.monotonic_ns() < timeout_ns:
                         if not self.contact_closed:
                             self.fanoe_ki_time = time.monotonic()
+                            self.t_ki_validated = True
                             dprint(f"FanoeMeasurementCycle: fanoe_ki @ {self.fanoe_ki_time - self._cycle_start:.3f}s (validalt meres)")
                             break
                         time.sleep(CYCLE_CONTACT_POLL_INTERVAL_S)
@@ -1336,10 +1341,19 @@ class FanoeTesterApp:
             if cyc.error_no_dropout:
                 lines.append(format_message("result_err_no_dropout"))
 
-            t_be_val = str(cyc.t_be_ms) if cyc.t_be_ms is not None else format_message("value_na")
+            # Validált (nanosec-pontos, védett ablakban sikerült) vs.
+            # hozzávetőleges (fallback, main-loop granularitású) jelölés a
+            # kezelő számára - terepen nincs REPL, ez az egyetlen visszajelzés.
+            if cyc.t_be_ms is not None:
+                t_be_val = f"{cyc.t_be_ms} {'✓' if cyc.t_be_validated else '~'}"
+            else:
+                t_be_val = format_message("value_na")
             lines.append(format_message("result_t_be", value=t_be_val))
 
-            t_ki_val = str(cyc.t_ki_ms) if cyc.t_ki_ms is not None else format_message("value_na")
+            if cyc.t_ki_ms is not None:
+                t_ki_val = f"{cyc.t_ki_ms} {'✓' if cyc.t_ki_validated else '~'}"
+            else:
+                t_ki_val = format_message("value_na")
             lines.append(format_message("result_t_ki", value=t_ki_val))
 
             # FONTOS: a sikeresen zárolt fanoe_ell mindig előbbre való, mint a
