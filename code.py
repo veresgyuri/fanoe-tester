@@ -13,7 +13,6 @@ import displayio
 import gc
 import keypad
 import microcontroller
-import neopixel
 import os
 import pwmio
 from adafruit_bitmap_font import bitmap_font
@@ -25,7 +24,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "1v17" # RESULT lista: validalt (✓) / hozzavetoleges (~) jelzes t_be/t_ki mellett, TFT-n is lathato
+VERSION = "1v2" # NeoPixel / Status LED kivezetve, tisztan TFT visszajelzes, RAM & GC optimalizalas
 
 
 def dprint(*args, **kwargs) -> None:
@@ -156,13 +155,8 @@ COLOR_TEXT_HIGHLIGHT = 0x000000
 COLOR_BORDER_HIGHLIGHT = 0x0033FF
 BORDER_THICKNESS = 3
 
-# --- FÁNOE RELÉ ÉS STÁTUSZ LED (Kézi BE / Ohm-mérő / Mérési ciklus módhoz) ---
+# --- FÁNOE RELÉ (Kézi BE / Ohm-mérő / Mérési ciklus módhoz) ---
 RELAY_PIN = board.IO7
-STATUS_LED_PIN = board.IO48  # WS2812 - MINDIG board.IO48 explicit, nem board.NEOPIXEL
-STATUS_LED_GREEN = (0, 40, 0)
-STATUS_LED_RED = (40, 0, 0)
-STATUS_LED_ORANGE = (40, 16, 0)
-STATUS_LED_YELLOW = (40, 40, 0)
 MANUAL_HOLD_UPDATE_INTERVAL = 0.05  # ms-szamlalo frissitesi gyakorisaga
 
 # --- IO6 él-detektálási pontosság (Kézi BE) - saját izolált méréssel (2026-08)
@@ -479,41 +473,6 @@ class RelayControl:
 
     def off(self):
         self._pin.value = True
-
-
-class StatusLed:
-    """WS2812 LED (board.IO48) - a Kézi BE, Ohm-mérő és a mérési ciklus
-    állapotjelzésére. start()/stop() között foglalja/engedi el a pint, hogy
-    más funkció is használhassa máskor, ha kell."""
-
-    def __init__(self, pin):
-        self._pin = pin
-        self._pixel = None
-
-    def start(self):
-        if self._pixel is None:
-            self._pixel = neopixel.NeoPixel(self._pin, 1, brightness=1.0, auto_write=True)
-
-    def set_green(self):
-        if self._pixel is not None:
-            self._pixel[0] = STATUS_LED_GREEN
-
-    def set_red(self):
-        if self._pixel is not None:
-            self._pixel[0] = STATUS_LED_RED
-
-    def set_orange(self):
-        if self._pixel is not None:
-            self._pixel[0] = STATUS_LED_ORANGE
-
-    def set_yellow(self):
-        if self._pixel is not None:
-            self._pixel[0] = STATUS_LED_YELLOW
-
-    def stop(self):
-        if self._pixel is not None:
-            self._pixel.deinit()
-            self._pixel = None
 
 
 class OhmMeter:
@@ -1026,7 +985,6 @@ class FanoeTesterApp:
         self.keypad = Keypad(ROW_PINS, COLUMN_PINS, KEY_NAMES, LONG_PRESS_SEC)
         self.navigator = MenuNavigator(MENU_ROOT)
         self.relay = RelayControl(RELAY_PIN)
-        self.led = StatusLed(STATUS_LED_PIN)
         self.ohm_meter = OhmMeter(OHM_METER_PIN, OHM_METER_REF_OHMS, OHM_METER_SAMPLE_COUNT)
         self.measurement_cycle = FanoeMeasurementCycle(
             self.relay, FANOE_CONTACT_PIN, OHM_METER_PIN, OHM_METER_REF_OHMS,
@@ -1177,23 +1135,19 @@ class FanoeTesterApp:
         return True
 
     def _action_fanoe_manual_hold_enter(self):
-        """A 'FÁNOE KÉZI BE' leaf-be lépéskor fut le egyszer: a LED-et
-        zöldre állítja, jelzi, hogy mostantól az ENTER folyamatos nyomva
-        tartását figyeljük. Létrehozza a kézi IO6 digitális bemenetet.
+        """A 'FÁNOE KÉZI BE' leaf-be lépéskor fut le egyszer: létrehozza a
+        kézi IO6 digitális bemenetet, és felkészül az ENTER nyomvatartásra.
         A statikus screen-t a generikus render mutatja (ezért False-t adunk vissza)."""
         self._manual_hold_active = True
         self._manual_hold_contact = digitalio.DigitalInOut(FANOE_CONTACT_PIN)
         self._manual_hold_contact.direction = digitalio.Direction.INPUT
         self._manual_hold_contact.pull = digitalio.Pull.UP  # zárva (behúzva) = LOW
-        self.led.start()
-        self.led.set_green()
-        dprint("Kezi BE mod aktiv, LED zold")
+        dprint("Kezi BE mod aktiv")
         return False
 
     def _cleanup_manual_hold(self):
-        """Amint elhagyjuk a 'FÁNOE KÉZI BE' leaf-et (BAL/ESC), a relét és
-        a LED-et biztonságosan lekapcsoljuk/elengedjük - nem visszük ki az
-        állapotot az almenüből."""
+        """Amint elhagyjuk a 'FÁNOE KÉZI BE' leaf-et (BAL/ESC), a relét
+        biztonságosan lekapcsoljuk és elengedjük a pint."""
         if not self._manual_hold_active:
             return
         self._manual_hold_active = False
@@ -1202,44 +1156,37 @@ class FanoeTesterApp:
         if self._manual_hold_contact is not None:
             self._manual_hold_contact.deinit()
             self._manual_hold_contact = None
-        self.led.stop()
-        dprint("Kezi BE mod elhagyva - relay/LED/contact torolve")
+        dprint("Kezi BE mod elhagyva - relay/contact torolve")
 
     def _action_ohm_meter_enter(self):
         """Az 'ELLENÁLLÁS MÉRÉS' leaf-be lépéskor fut le egyszer: elindítja
-        az ADC-t, a LED-et narancssárgára állítja, és felrajzolja a
-        kezdő képet. A tényleges élő frissítés a run() fő ciklusában
-        történik (lásd _ohm_meter_active)."""
+        az ADC-t, és felrajzolja a kezdő képet. A tényleges élő frissítés
+        a run() fő ciklusában történik (lásd _ohm_meter_active)."""
         self._ohm_meter_active = True
         self._ohm_meter_last_update = time.monotonic()
         self._ohm_meter_last_repl = self._ohm_meter_last_update
         self.ohm_meter.start()
-        self.led.start()
-        self.led.set_orange()
         self.display.set_line(True, " Ohm-mérés üzemmód", False)
         self.display.set_line(
             False, "  mérés indul...", False,
             bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_WARNING,
         )
-        dprint("Ohm-mero mod aktiv, LED narancs")
+        dprint("Ohm-mero mod aktiv")
         return True
 
     def _cleanup_ohm_meter(self):
-        """Amint elhagyjuk az 'ELLENÁLLÁS MÉRÉS' leaf-et (BAL/ESC), az
-        ADC-t és a LED-et elengedjük."""
+        """Amint elhagyjuk az 'ELLENÁLLÁS MÉRÉS' leaf-et (BAL/ESC), az ADC-t elengedjük."""
         if not self._ohm_meter_active:
             return
         self._ohm_meter_active = False
         self.ohm_meter.stop()
-        self.led.stop()
-        dprint("Ohm-mero mod elhagyva - ADC/LED torolve")
+        dprint("Ohm-mero mod elhagyva - ADC torolve")
 
     def _action_start_measurement_cycle(self):
         """A 'FÁNOE BE/KI MÉRÉS' leaf-en belüli megerősítő ENTER-re fut le
         (confirm_keys minta) - elindítja a FanoeMeasurementCycle-t."""
         self._cycle_active = True
         self._cycle_last_update = time.monotonic()
-        self.led.start()
         
         # Ciklus indítása (visszatérési értéke jelzi, ha indítási hiba történt)
         started_ok = self.measurement_cycle.start()
@@ -1295,17 +1242,13 @@ class FanoeTesterApp:
 
     def _render_cycle_progress(self, state):
         """A T_ELO/T_BENT/T_UTO fázisok élő kijelzése: fázisnévvel/színnel
-        a felső sor, ms-visszaszámlálással az alsó - a LED ugyanazt a
-        színt mutatja."""
+        a felső sor, ms-visszaszámlálással az alsó."""
         if state == FanoeMeasurementCycle.STATE_T_ELO:
             label_text, color = " FÁVA holtidő fut", COLOR_TEXT_SUCCESS
-            self.led.set_green()
         elif state == FanoeMeasurementCycle.STATE_T_BENT:
             label_text, color = " BE parancs kiadva", COLOR_TEXT_DANGER
-            self.led.set_red()
         elif state == FanoeMeasurementCycle.STATE_T_UTO:
             label_text, color = " Mérési utóidő fut", COLOR_TEXT_WARNING
-            self.led.set_yellow()
         else:
             return
 
@@ -1318,7 +1261,7 @@ class FanoeTesterApp:
 
     def _finish_measurement_cycle(self):
         """A ciklus RESULT állapotba érésekor fut le: összeállítja a
-        lapozható eredmény-listát, elengedi az ADC/kontakt/LED-et, és a
+        lapozható eredmény-listát, elengedi az ADC/kontakt pint, és a
         MenuNavigator-on keresztül megjeleníti (ugyanaz a csúszóablakos
         renderelés, mint a menü böngészésnél)."""
         cyc = self.measurement_cycle
@@ -1377,7 +1320,6 @@ class FanoeTesterApp:
             lines.append(format_message("result_r_ki", value=r_ki_val))
 
         self._cycle_active = False
-        self.led.stop()
         cyc.stop()
         self.navigator.push_result_list(lines)
         self._render()
@@ -1387,7 +1329,6 @@ class FanoeTesterApp:
         """ESC bármikor, az aktív fázisok alatt - AZONNALI megszakítás."""
         self.measurement_cycle.abort()
         self._cycle_active = False
-        self.led.stop()
         top_text, bottom_text = format_message("aborted_by_user")
         self.display.show_pair(top_text, bottom_text, None)
         self._suppress_next_esc_release = True
@@ -1400,7 +1341,6 @@ class FanoeTesterApp:
             return
         self._cycle_active = False
         self.measurement_cycle.stop()
-        self.led.stop()
         dprint("Meresi ciklus vedohalo-takaritas lefutott")
 
     def _cleanup_active_modes(self):
@@ -1417,16 +1357,12 @@ class FanoeTesterApp:
         """LEFT vagy rövid ESC közös kezelése: ha volt tényleges lépés,
         normál render; ha már a gyökérszinten voltunk (no-op), egy rövid
         villanás jelzi ezt a usernek, majd magától visszavált."""
-        #self._active_setting_key = None  # Szerkesztési állapot törlése balra lépéskor
         moved = self.navigator.go_left()
         self._cleanup_active_modes()
         if moved:
             self._render()
         else:
             top_text, bottom_text = format_message("already_at_root")
-            self.display.show_pair(
-                top_text, bottom_text, None
-            ) # Javítva show_pair-re, mivel a "már a gyökérben vagyunk" kétsoros üzenet (tuple)
             self.display.show_pair(top_text, bottom_text, 0)  # felső sor sárgán kiemelve
             self._root_bump_until = time.monotonic() + ROOT_BUMP_DURATION
 
@@ -1455,12 +1391,11 @@ class FanoeTesterApp:
                         self._manual_hold_pullin_ms = int(elapsed_s * 1000)
                         dprint(f"Kezi BE: behuzott @ {self._manual_hold_pullin_ms} ms")
 
-                # --- KOZMETIKA (LED, felső sor, debug print) - EGYSZER, az IO6-
-                # ellenőrzés UTÁN, hogy a kijelző/LED-írás (SPI/protokoll idő)
+                # --- KOZMETIKA (felső sor, debug print) - EGYSZER, az IO6-
+                # ellenőrzés UTÁN, hogy a kijelző-írás (SPI protokoll idő)
                 # ne torzítsa a fenti mérést. ---
                 if not self._manual_hold_cosmetics_shown:
                     self._manual_hold_cosmetics_shown = True
-                    self.led.set_red()
                     dprint("Vezérlő parancs kiadva - IO7")
                     if self._manual_hold_pullin_ms == -1:
                         dprint("Kezi BE HIBA: A kontaktus már indításkor zárva volt!")
@@ -1614,12 +1549,12 @@ class FanoeTesterApp:
                             self.display.set_operating_backlight(self._backlight_duty)
 
                         # Vizuális visszajelzés a mentésről - a "Sikeres/Sikertelen mentés"
-                        # üzenet 0.8s-ig látszik, a run() ciklus eleji
+                        # üzenet 1.1s-ig látszik, a run() ciklus eleji
                         # _save_msg_until blokk zárja le
                         if success:
-                            top_text, bottom_text = format_message("save_ok") # pl. ("Sikeres mentés", "")
+                            top_text, bottom_text = format_message("save_ok")
                         else:
-                            top_text, bottom_text = format_message("save_fail") # pl. ("Nem menthető", "Fejlesztői módban")
+                            top_text, bottom_text = format_message("save_fail")
                             
                         self.display.show_pair(top_text, bottom_text, None)
                         self._save_msg_until = time.monotonic() + 1.1
@@ -1693,7 +1628,6 @@ class FanoeTesterApp:
                 if key_name == "ENTER" and self._manual_hold_active:
                     self._manual_hold_pressed = False
                     self.relay.off()
-                    self.led.set_green()
                     dprint("IO7 parancs vege (elengedve)")
                     self._render()
                 elif key_name == "ESC":
