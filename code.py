@@ -24,7 +24,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "1v2" # NeoPixel / Status LED kivezetve, tisztan TFT visszajelzes, RAM & GC optimalizalas
+VERSION = "1v30" # Chip UID cimke divergencia javitva - menu_data.py screen[0]-bol olvas, nem hardcode-olt
 
 
 def dprint(*args, **kwargs) -> None:
@@ -1119,8 +1119,9 @@ class FanoeTesterApp:
 
     def _action_info_chip_uid(self):
         uid_hex = ":".join(f"{b:02X}" for b in microcontroller.cpu.uid)
+        top_text, _ = self.navigator.current_item()["screen"]
         dprint(f"Chip UID: {uid_hex}")
-        self.display.show_pair(" Chip UID:", "  " + uid_hex, None)
+        self.display.show_pair(top_text, "  " + uid_hex, None)
         return True
 
     def _action_info_fw_version(self):

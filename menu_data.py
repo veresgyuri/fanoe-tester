@@ -155,7 +155,7 @@ MENU_ROOT = [
                 "activate_keys": {"ENTER", "RIGHT"},
                 "action": "info_chip_uid",
                 "auto_dispatch": True,
-                "screen": (" Chip típus azonosító:", "     ..."),
+                "screen": (" ESP egyedi azonosító:", "     ..."),
             },
             {
                 "label": " Hardwer verzió ->",
