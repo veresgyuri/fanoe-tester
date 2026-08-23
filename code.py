@@ -24,7 +24,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "1v30" # Chip UID cimke divergencia javitva - menu_data.py screen[0]-bol olvas, nem hardcode-olt
+VERSION = "1v31" # Maradek 9 info_* handler is menu_data.py screen[0]-bol olvas - nincs tobb duplikalt statikus cimke
 
 
 def dprint(*args, **kwargs) -> None:
@@ -1067,11 +1067,13 @@ class FanoeTesterApp:
 
     def _action_info_cpu_freq(self):
         freq_mhz = microcontroller.cpu.frequency // 1_000_000
+        top_text, _ = self.navigator.current_item()["screen"]
         dprint(f"CPU frekvencia: {freq_mhz} MHz")
-        self.display.show_pair(" ESP32-S3 CPU órajel:", f"     {freq_mhz} MHz", None)
+        self.display.show_pair(top_text, f"     {freq_mhz} MHz", None)
         return True
 
     def _action_info_cpu_temp(self):
+        top_text, _ = self.navigator.current_item()["screen"]
         try:
             temp_c = microcontroller.cpu.temperature
             text = f"     {temp_c:.0f} °C"
@@ -1079,19 +1081,21 @@ class FanoeTesterApp:
         except (AttributeError, NotImplementedError):
             dprint("microcontroller.cpu.temperature nem elerheto ezen a chipen")
             text = "     nem elerheto"
-        self.display.show_pair(" ESP32-S3 CPU hőfok:", text, None)
+        self.display.show_pair(top_text, text, None)
         return True
 
     def _action_info_used_ram(self):
         used_kb = gc.mem_alloc() // 1024
+        top_text, _ = self.navigator.current_item()["screen"]
         dprint(f"Használt RAM: {used_kb} KB")
-        self.display.show_pair(" Használt RAM memória:", f"    {used_kb} KB", None)
+        self.display.show_pair(top_text, f"    {used_kb} KB", None)
         return True
 
     def _action_info_free_ram(self):
         free_kb = gc.mem_free() // 1024
+        top_text, _ = self.navigator.current_item()["screen"]
         dprint(f"Szabad RAM: {free_kb} KB")
-        self.display.show_pair(" Szabad RAM memória:", f"    {free_kb} KB", None)
+        self.display.show_pair(top_text, f"    {free_kb} KB", None)
         return True
 
     def _action_info_used_flash(self):
@@ -1100,21 +1104,24 @@ class FanoeTesterApp:
         total_bytes = block_size * fs_stat[2]
         free_bytes = block_size * fs_stat[3]
         used_mb = (total_bytes - free_bytes) / (1024 * 1024)
+        top_text, _ = self.navigator.current_item()["screen"]
         dprint(f"Foglalt flash: {used_mb:.1f} MB")
-        self.display.show_pair(" Foglalt flash memória:", f"    {used_mb:.1f} MB", None)
+        self.display.show_pair(top_text, f"    {used_mb:.1f} MB", None)
         return True
 
     def _action_info_free_flash(self):
         fs_stat = os.statvfs('/')
         free_mb = (fs_stat[0] * fs_stat[3]) / (1024 * 1024)
+        top_text, _ = self.navigator.current_item()["screen"]
         dprint(f"Szabad flash: {free_mb:.1f} MB")
-        self.display.show_pair(" Szabad flash memória:", f"    {free_mb:.1f} MB", None)
+        self.display.show_pair(top_text, f"    {free_mb:.1f} MB", None)
         return True
 
     def _action_info_board_id(self):
         board_id = os.uname().machine
+        top_text, _ = self.navigator.current_item()["screen"]
         dprint(f"Board azonosito: {board_id}")
-        self.display.show_pair(" Board azonosító:", "  " + board_id[:20], None)
+        self.display.show_pair(top_text, "  " + board_id[:20], None)
         return True
 
     def _action_info_chip_uid(self):
@@ -1126,13 +1133,15 @@ class FanoeTesterApp:
 
     def _action_info_fw_version(self):
         cpy_fw = os.uname().version
+        top_text, _ = self.navigator.current_item()["screen"]
         dprint(f"CircuitPython firmware verzió: {cpy_fw}")
-        self.display.show_pair(" cPy firmware verzió:", f"  {cpy_fw}", None)
+        self.display.show_pair(top_text, f"  {cpy_fw}", None)
         return True
     
     def _action_info_sw_version(self):
+        top_text, _ = self.navigator.current_item()["screen"]
         dprint(f"Software verzio: {VERSION}")
-        self.display.show_pair(" Software verzió:", f"   {VERSION}", None)
+        self.display.show_pair(top_text, f"   {VERSION}", None)
         return True
 
     def _action_fanoe_manual_hold_enter(self):
