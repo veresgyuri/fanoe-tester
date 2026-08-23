@@ -24,7 +24,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "1v31" # Maradek 9 info_* handler is menu_data.py screen[0]-bol olvas - nincs tobb duplikalt statikus cimke
+VERSION = "1v32" # Ohm-mero felso sor is menu_data.py screen[0]-bol olvas - nincs tobb duplikalt statikus cimke
 
 
 def dprint(*args, **kwargs) -> None:
@@ -1176,7 +1176,8 @@ class FanoeTesterApp:
         self._ohm_meter_last_update = time.monotonic()
         self._ohm_meter_last_repl = self._ohm_meter_last_update
         self.ohm_meter.start()
-        self.display.set_line(True, " Ohm-mérés üzemmód", False)
+        top_text, _ = self.navigator.current_item()["screen"]
+        self.display.set_line(True, top_text, False)
         self.display.set_line(
             False, "  mérés indul...", False,
             bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_WARNING,
