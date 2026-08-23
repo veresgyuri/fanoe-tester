@@ -74,12 +74,13 @@ From `instructions/fanoe_tester_logic.md`:
   - The implementation must be non-blocking and driven by `time.monotonic()`.
   - The class name should be `FanoeMeasurementCycle`.
 
-#### 5. Status LED conventions
-If a new continuous action uses the onboard WS2812 LED:
+#### 5. Status LED (WS2812 / IO48) — DEPRECATED & REMOVED (ver: 1v2+)
 
-- Always use `board.IO48` explicitly; never rely on `board.NEOPIXEL` for this board.
-- Only one continuous mode should own the LED at a time.
-- Keep the color vocabulary consistent: green = idle/armed-safe, red = active output/danger, orange = measurement sampling.
+- **Current rule (v1v2+):** The onboard WS2812 LED and the `neopixel` module are fully removed to eliminate dynamic memory allocation, save RAM, and avoid Garbage Collector (GC) latency during measurements.
+  - Do NOT import `neopixel` or control `board.IO48`.
+  - Do NOT instantiate `StatusLed` in new device actions.
+  - All visual feedback must be displayed strictly on the TFT screen.
+- **Historical / Legacy reference (< ver: 1v2):** In older versions prior to 1v2, `board.IO48` was used via `StatusLed` (green = safe/idle, red = relay active, orange = ohm sampling). This is kept for reference only when reading older commits.
 
 ---
 ### CODE GENERATION LOGIC & RULES
@@ -110,6 +111,7 @@ If a new continuous action uses the onboard WS2812 LED:
 - Do not let static placeholder text overwrite live content due to a missing return value contract.
 - Do not use `time.sleep()` in the main loop.
 - Do not invent a `VERSION` string; ask the user to manage it manually.
+- Do not import `neopixel` or control board.IO48 for status indication (deprecated from ver: 1v2+).
 
 **6. Verification checklist before handing code back:**
 - Run a Python syntax check (`py_compile`) after edits.
