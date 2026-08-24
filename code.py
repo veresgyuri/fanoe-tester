@@ -24,7 +24,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "1v32" # Ohm-mero felso sor is menu_data.py screen[0]-bol olvas - nincs tobb duplikalt statikus cimke
+VERSION = "1v33" # Ciklus fazis-feliratok + Kezi BE allapotszovegek + Ohm-mero indulo szoveg atkoltoztetve tft_messages.py-ba
 
 
 def dprint(*args, **kwargs) -> None:
@@ -1179,7 +1179,7 @@ class FanoeTesterApp:
         top_text, _ = self.navigator.current_item()["screen"]
         self.display.set_line(True, top_text, False)
         self.display.set_line(
-            False, "  mérés indul...", False,
+            False, format_message("ohm_meter_starting"), False,
             bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_WARNING,
         )
         dprint("Ohm-mero mod aktiv")
@@ -1255,11 +1255,11 @@ class FanoeTesterApp:
         """A T_ELO/T_BENT/T_UTO fázisok élő kijelzése: fázisnévvel/színnel
         a felső sor, ms-visszaszámlálással az alsó."""
         if state == FanoeMeasurementCycle.STATE_T_ELO:
-            label_text, color = " FÁVA holtidő fut", COLOR_TEXT_SUCCESS
+            label_text, color = format_message("cycle_t_elo"), COLOR_TEXT_SUCCESS
         elif state == FanoeMeasurementCycle.STATE_T_BENT:
-            label_text, color = " BE parancs kiadva", COLOR_TEXT_DANGER
+            label_text, color = format_message("cycle_t_bent"), COLOR_TEXT_DANGER
         elif state == FanoeMeasurementCycle.STATE_T_UTO:
-            label_text, color = " Mérési utóidő fut", COLOR_TEXT_WARNING
+            label_text, color = format_message("cycle_t_uto"), COLOR_TEXT_WARNING
         else:
             return
 
@@ -1413,12 +1413,12 @@ class FanoeTesterApp:
                     else:
                         dprint(f"DEBUG -> Relé ON időbélyeg: {self._manual_hold_start_ns}")
                     self.display.set_line(
-                        True, " BE parancs kiadva", False,
+                        True, format_message("manual_starting"), False,
                         bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_DANGER,
                     )
                     if self._manual_hold_pullin_ms == -1:
                         self.display.set_line(
-                            False, "   [ ALAPBÓL ZÁRVA ]", False,
+                            False, format_message("manual_already_closed"), False,
                             bg_color=COLOR_BG_NORMAL, text_color=COLOR_TEXT_DANGER,
                         )
                     else:
@@ -1432,11 +1432,11 @@ class FanoeTesterApp:
                     elapsed_ms = int((now - self._manual_hold_start) * 1000)
 
                     if self._manual_hold_pullin_ms == -1:
-                        text = "   [ ALAPBÓL ZÁRVA ]"
+                        text = format_message("manual_already_closed")
                         color = COLOR_TEXT_DANGER
                     else:
                         if self._manual_hold_pullin_ms is not None:
-                            text = f"  behúzott: {self._manual_hold_pullin_ms:.1f} ms"
+                            text = format_message("manual_pullin", value=f"{self._manual_hold_pullin_ms:.1f}")
                             color = COLOR_TEXT_SUCCESS
                         else:
                             text = f"     {elapsed_ms} ms"

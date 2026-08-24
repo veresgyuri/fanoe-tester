@@ -49,7 +49,18 @@ TFT_MESSAGES = {
     # --- Megszakítás (ESC aktív állapotban) ---
     "aborted_by_user": (" A mérés megszakítva", " visszalépés ▶"),
 
+    # --- Automatikus ciklus fázis-feliratok (élő kijelzés, T_ELO/T_BENT/T_UTO) ---
+    "cycle_t_elo": " FÁVA holtidő fut",
+    "cycle_t_bent": " BE parancs kiadva",
+    "cycle_t_uto": " Mérési utóidő fut",
+
+    # --- Kézi BE ("FÁNOE KÉZI BE") állapotszövegei ---
+    "manual_starting": " BE parancs kiadva",
+    "manual_already_closed": "   [ ALAPBÓL ZÁRVA ]",
+    "manual_pullin": "  behúzott: {value} ms",
+
     # --- Ohm-mérő mód (folyamatosan frissülő, IO14) ---
+    "ohm_meter_starting": "  mérés indul...",
     "ohm_meter_high": " > 500 Ω",
     "ohm_meter_open": " - - -",
 
@@ -58,5 +69,5 @@ TFT_MESSAGES = {
     "save_fail": (" Csak RAM-ba mentve!", " Sikertelen file írás"),
 
     # --- Navigáció: (LEFT/rövid ESC no-op) ---
-    "already_at_root": ("    Ez már a FŐMENÜ", "      ⏎  ↑  ↓  ▶"),
+    "already_at_root": (" Ez már a FŐMENÜ", "      ⏎  ↑  ↓  ▶"),
 }
