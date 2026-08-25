@@ -69,5 +69,5 @@ TFT_MESSAGES = {
     "save_fail": (" Csak RAM-ba mentve!", " Sikertelen file írás"),
 
     # --- Navigáció: (LEFT/rövid ESC no-op) ---
-    "already_at_root": (" Ez már a FŐMENÜ", "      ⏎  ↑  ↓  ▶"),
+    "already_at_root": ("    Ez már a FŐMENÜ", "      ⏎  ↑  ↓  ▶"),
 }
