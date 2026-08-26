@@ -24,7 +24,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "1v33" # Ciklus fazis-feliratok + Kezi BE allapotszovegek + Ohm-mero indulo szoveg atkoltoztetve tft_messages.py-ba
+VERSION = "1v40" # Hosszú ESC figyelés kivezetve; az ESC és LEFT azonnal lenyomásra lép vissza
 
 
 def dprint(*args, **kwargs) -> None:
@@ -223,7 +223,7 @@ DEFAULT_T_UTO_MS = 5000
 DEFAULT_R_ELL_OHM = 80
 DEFAULT_BACKLIGHT_DUTY = 4096
 
-# --- "Már a gyökérben vagyunk" villanás (LEFT/rövid ESC no-op-nál) ---
+# --- "Már a gyökérben vagyunk" villanás (LEFT/ESC no-op-nál) ---
 ROOT_BUMP_DURATION = 1.0
 
 # --- WELCOME SCREEN KONFIGURÁCIÓ ---
@@ -240,39 +240,25 @@ WELCOME_HOLD_SECONDS = 0.9
 ROW_PINS = (board.IO5, board.IO4)
 COLUMN_PINS = (board.IO1, board.IO2, board.IO3)
 KEY_NAMES = {0: "ENTER", 1: "LEFT", 2: "UP", 3: "ESC", 4: "RIGHT", 5: "DOWN"}
-LONG_PRESS_SEC = 2.0
 
 
 class Keypad:
-    """A 6 gombos mátrix csomagolása: nevesített gombesemények, ESC
-    hosszú-nyomás detektálással."""
+    """A 6 gombos mátrix csomagolása: nevesített gombesemények."""
 
-    def __init__(self, row_pins, column_pins, key_names, long_press_sec):
+    def __init__(self, row_pins, column_pins, key_names):
         self._matrix = keypad.KeyMatrix(row_pins=row_pins, column_pins=column_pins)
         self._key_names = key_names
-        self._long_press_sec = long_press_sec
-        self._press_time = {}
 
     def poll(self):
         """Egy esemény lekérése, vagy None, ha nincs. Visszatérési érték:
-        (key_name, "pressed"|"released", duration_or_None)."""
+        (key_name, "pressed"|"released", None)."""
         event = self._matrix.events.get()
         if not event:
             return None
 
         key_name = self._key_names.get(event.key_number, "ISMERETLEN")
-
-        if event.pressed:
-            self._press_time[event.key_number] = time.monotonic()
-            return (key_name, "pressed", None)
-
-        # event.released
-        pressed_at = self._press_time.get(event.key_number)
-        duration = (time.monotonic() - pressed_at) if pressed_at else 0.0
-        return (key_name, "released", duration)
-
-    def is_long_press(self, duration):
-        return duration is not None and duration >= self._long_press_sec
+        phase = "pressed" if event.pressed else "released"
+        return (key_name, phase, None)
 
 
 class Display:
@@ -923,11 +909,6 @@ class MenuNavigator:
         dprint("Mar a gyoker szinten vagyunk")
         return False
 
-    def jump_to_root(self):
-        self.in_leaf_screen = False
-        self.nav_stack = [(self._root, 0, 0)]
-        dprint("Hosszu ESC -> ugras a FOMENUbe")
-
     def push_result_list(self, labels):
         """Egy futásidőben generált, egysoros szövegekből álló listát tol a
         nav_stack tetejére - ugyanaz a csúszóablakos/kiemelt böngészés
@@ -982,7 +963,7 @@ class FanoeTesterApp:
         )
 
         self.display = Display()
-        self.keypad = Keypad(ROW_PINS, COLUMN_PINS, KEY_NAMES, LONG_PRESS_SEC)
+        self.keypad = Keypad(ROW_PINS, COLUMN_PINS, KEY_NAMES)
         self.navigator = MenuNavigator(MENU_ROOT)
         self.relay = RelayControl(RELAY_PIN)
         self.ohm_meter = OhmMeter(OHM_METER_PIN, OHM_METER_REF_OHMS, OHM_METER_SAMPLE_COUNT)
@@ -1003,7 +984,6 @@ class FanoeTesterApp:
         self._ohm_meter_last_repl = 0
         self._cycle_active = False  # True, amíg a mérési ciklus fut (T_ELO/T_BENT/T_UTO)
         self._cycle_last_update = 0
-        self._suppress_next_esc_release = False  # ciklus-megszakítás utáni ESC-felengedés elnyelése
         self._root_bump_until = 0  # 0 = inaktív; monotonic timestamp, ameddig villog
         self._save_msg_until = 0  # 0 = inaktív; monotonic timestamp, ameddig a mentés-üzenet látszik
         
@@ -1342,7 +1322,6 @@ class FanoeTesterApp:
         self._cycle_active = False
         top_text, bottom_text = format_message("aborted_by_user")
         self.display.show_pair(top_text, bottom_text, None)
-        self._suppress_next_esc_release = True
         dprint("Meresi ciklus megszakitva (ESC)")
 
     def _cleanup_measurement_cycle(self):
@@ -1365,7 +1344,7 @@ class FanoeTesterApp:
         self._cleanup_measurement_cycle()
 
     def _handle_go_left(self):
-        """LEFT vagy rövid ESC közös kezelése: ha volt tényleges lépés,
+        """LEFT vagy ESC közös kezelése: ha volt tényleges lépés,
         normál render; ha már a gyökérszinten voltunk (no-op), egy rövid
         villanás jelzi ezt a usernek, majd magától visszavált."""
         moved = self.navigator.go_left()
@@ -1598,7 +1577,7 @@ class FanoeTesterApp:
                         else:
                             self._render()
 
-                elif key_name == "LEFT":
+                elif key_name in ("LEFT", "ESC"):
                     self._handle_go_left()
 
                 elif key_name == "UP":
@@ -1641,18 +1620,6 @@ class FanoeTesterApp:
                     self.relay.off()
                     dprint("IO7 parancs vege (elengedve)")
                     self._render()
-                elif key_name == "ESC":
-                    if self._suppress_next_esc_release:
-                        self._suppress_next_esc_release = False
-                        dprint("ESC felengedve - meresi ciklus megszakitas utan, elnyelve")
-                    else:
-                        dprint(f"ESC felengedve, nyomvatartas: {duration:.2f} s")
-                        if self.keypad.is_long_press(duration):
-                            self.navigator.jump_to_root()
-                            self._cleanup_active_modes()
-                            self._render()
-                        else:
-                            self._handle_go_left()
 
 
 def main():
