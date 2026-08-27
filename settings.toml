@@ -14,7 +14,7 @@ T_BENT_MS = 6000  # beállítható: 500-7000 ms - step: 100 ms
 T_UTO_MS = 5000  # beállítható: 500-5000 ms - step: 100 ms
 
 # --- Ellenállás éldetektálási küszöb (r_be/r_ki-hez) [Ohm] ---
-R_ELL_OHM = 70  # beállítható: 70-150 Ω  - step: 10 Ω
+# R_ELL_OHM már NEM állítható - fix konstans, lásd code.py DEFAULT_R_ELL_OHM
 
 # --- TFT háttérvilágítás (PWM duty cycle, 0-65535) ---
 BACKLIGHT_DUTY = 32768

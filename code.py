@@ -24,8 +24,7 @@ from menu_data import MENU_ROOT
 from tft_messages import TFT_MESSAGES
 
 DEBUG = True
-VERSION = "1v40" # Hosszú ESC figyelés kivezetve; az ESC és LEFT azonnal lenyomásra lép vissza
-
+VERSION = "1v41" # Set R_ELL_OHM to a fixed constant (80 Ohm) in code.py and remove it from settings.toml
 
 def dprint(*args, **kwargs) -> None:
     """Print debug messages when DEBUG mode is enabled."""
@@ -220,7 +219,7 @@ CYCLE_PROGRESS_UPDATE_INTERVAL = 0.05  # TFT ms-visszaszámláló frissítési g
 DEFAULT_T_ELO_MS = 2000
 DEFAULT_T_BENT_MS = 6000
 DEFAULT_T_UTO_MS = 5000
-DEFAULT_R_ELL_OHM = 80
+DEFAULT_R_ELL_OHM = 80 # fix küszöb, lásd fanoe_tester_logic.md
 DEFAULT_BACKLIGHT_DUTY = 4096
 
 # --- "Már a gyökérben vagyunk" villanás (LEFT/ESC no-op-nál) ---
@@ -954,7 +953,7 @@ class FanoeTesterApp:
         self._t_elo_ms = get_int_setting("T_ELO_MS", DEFAULT_T_ELO_MS)
         self._t_bent_ms = get_int_setting("T_BENT_MS", DEFAULT_T_BENT_MS)
         self._t_uto_ms = get_int_setting("T_UTO_MS", DEFAULT_T_UTO_MS)
-        self._r_ell_ohm = get_int_setting("R_ELL_OHM", DEFAULT_R_ELL_OHM)
+        self._r_ell_ohm = DEFAULT_R_ELL_OHM  # fix, menüből eltávolítva - lásd fanoe_tester_logic.md
         self._backlight_duty = get_int_setting("BACKLIGHT_DUTY", DEFAULT_BACKLIGHT_DUTY)
         dprint(
             f"settings.toml: t_elo={self._t_elo_ms}ms t_bent={self._t_bent_ms}ms "
