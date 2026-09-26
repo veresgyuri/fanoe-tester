@@ -1,0 +1,8 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "Device")(type "KiCad")(uri "${KIPRJMOD}/Device.kicad_sym")(options "")(descr ""))
+  (lib (name "Conn_01x06TftDisplay")(type "KiCad")(uri "${KIPRJMOD}/Symbols/Conn_01x06TftDisplay.kicad_sym")(options "")(descr ""))
+  (lib (name "Conn_01x09Esp1to9")(type "KiCad")(uri "${KIPRJMOD}/Symbols/Conn_01x09Esp1to9.kicad_sym")(options "")(descr ""))
+  (lib (name "Conn_01x09Esp10to18")(type "KiCad")(uri "${KIPRJMOD}/Symbols/Conn_01x09Esp10to18.kicad_sym")(options "")(descr ""))
+  (lib (name "Conn_01x05Keyboard")(type "KiCad")(uri "${KIPRJMOD}/Symbols/Conn_01x05Keyboard.kicad_sym")(options "")(descr ""))
+)
