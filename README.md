@@ -1,6 +1,6 @@
 # FÁNOE tester
 
-**Status:** Under active development - started by Gyuri on 2026. july
+**Status:** Under active development - started by Gyuri on 2026. july-
 
 Sorry folks, this repo comes with Hungarian comments only 🙂<br> 
 
